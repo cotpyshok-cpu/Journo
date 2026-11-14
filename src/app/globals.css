@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-cream: #F6F4EF;
+  --bg-surface: #FFFFFF;
+  --bg-muted: #ECE9E1;
+  --forest-deep: #2F453B;
+  --forest-muted: #3D564B;
+  --terracotta: #C67D63;
+  --terracotta-hover: #B26B52;
+  --terracotta-soft: #F4E8E3;
+  --border-subtle: #DFDBD0;
+  --status-safe: #3F7A63;
+  --status-warn: #B6824E;
+  --status-danger: #B05454;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--bg-cream);
+    color: var(--forest-deep);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  a,
+  select,
+  input,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C67D63] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F6F4EF];
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Soft pastel editorial filter on OSM map tiles so map blends with #F6F4EF */
+.journo-map-tiles {
+  filter: sepia(8%) saturate(72%) brightness(103%) contrast(94%);
+}
+
+.leaflet-container {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  background-color: #ECE9E1;
+}
+
+/* Custom Journo map pin resets */
+.journo-pin-wrapper {
+  background: transparent;
+  border: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

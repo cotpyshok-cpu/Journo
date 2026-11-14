@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Next.js build & caches
+.next/
+out/
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Environment secrets (keep .env.example tracked)
+.env
+.env*.local
+!.env.example
+
+# Local SQLite database
+prisma/*.db
+prisma/*.db-journal
+
+# QA / Playwright reports & temp scratch assets
+test-results/
+playwright-report/
+5458384820669981587_121.jpg
+User Case Flow RouteFlow (веб-приложение)1.docx

@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String
+  avatarUrl          String?
+  tier               String    @default("FREE") // FREE | PRO | DEV
+  transportModes     String    @default("BOTH") // BOTH | WALK | TRANSIT
+  homeAddress        String    @default("Highvill Astana, Baitursynov St 5, Astana")
+  homeLat            Float     @default(51.1245)
+  homeLng            Float     @default(71.4662)
+  workAddress        String?   @default("Astana Hub, Mangilik El Ave 55/8, Astana")
+  workLat            Float?    @default(51.0894)
+  workLng            Float?    @default(71.4158)
+  tempBaseAddress    String?
+  tempBaseLat        Float?
+  tempBaseLng        Float?
+  currentCity        String    @default("Astana")
+  currentTimezone    String    @default("Asia/Almaty")
+  homeCity           String    @default("Astana")
+  homeTimezone       String    @default("Asia/Almaty")
+  delayThresholdMin  Int       @default(5)
+  quietHoursStart    String    @default("22:00")
+  quietHoursEnd      String    @default("07:00")
+  preferredNavApp    String    @default("GOOGLE") // GOOGLE | APPLE | WAZE
+  onboardingStep     Int       @default(9)
+  stripeCustomerId   String?
+  subscriptionEndsAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tasks               Task[]
+  series              TaskSeries[]
+  calendarConnections CalendarConnection[]
+  calendarEvents      CalendarEvent[]
+  dayPlans            DayPlan[]
+  pushSubscriptions   PushSubscriptionRecord[]
+}
+
+model Task {
+  id                    String    @id @default(cuid())
+  userId                String
+  title                 String
+  locationName          String?
+  address               String?
+  lat                   Float?
+  lng                   Float?
+  date                  String // YYYY-MM-DD
+  windowStart           String? // HH:MM
+  windowEnd             String? // HH:MM
+  durationMin           Int       @default(30)
+  priority              String    @default("MEDIUM") // HIGH | MEDIUM | LOW
+  isFlexible            Boolean   @default(true)
+  status                String    @default("PLANNED") // DRAFT | PLANNED | IN_PROGRESS | DONE | SKIPPED | CONFLICT
+  source                String    @default("TASK") // TASK | INTERNAL_CALENDAR | GOOGLE_CALENDAR | APPLE_ICS | SERIES
+  externalId            String?
+  seriesId              String?
+  seriesOccurrenceIndex Int?
+  seriesTotalCount      Int?
+  city                  String    @default("Astana")
+  timezone              String    @default("Asia/Almaty")
+  plannedOrder          Int?
+  departureTime         String? // HH:MM
+  eta                   String? // HH:MM
+  bufferMin             Int?
+  legMode               String? // WALK | TRANSIT
+  legDurationWalkMin    Int?
+  legDurationTransitMin Int?
+  legDistanceKm         Float?
+  legModeChosenByUser   Boolean   @default(false)
+  exceedsFreeLimit      Boolean   @default(false)
+  startedAt             DateTime?
+  extendedMin           Int       @default(0)
+  deletedInCalendar     Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  series TaskSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([seriesId])
+  @@index([status])
+}
+
+model TaskSeries {
+  id             String   @id @default(cuid())
+  userId         String
+  title          String
+  locationName   String
+  address        String
+  lat            Float
+  lng            Float
+  mode           String   @default("SPECIFIC_DAYS") // SPECIFIC_DAYS | N_PER_WEEK
+  daysOfWeek     String? // Mon,Wed,Fri
+  timesPerWeek   Int?
+  windowStart    String?
+  windowEnd      String?
+  durationMin    Int      @default(60)
+  isFlexible     Boolean  @default(false)
+  endType        String   @default("THREE_MONTHS") // UNTIL_DATE | N_OCCURRENCES | THREE_MONTHS | ENDLESS
+  endDate        String // YYYY-MM-DD
+  totalCount     Int      @default(39)
+  completedCount Int      @default(12)
+  status         String   @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
+  city           String   @default("Astana")
+  timezone       String   @default("Asia/Almaty")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([userId, status])
+}
+
+model CalendarConnection {
+  id             String    @id @default(cuid())
+  userId         String
+  provider       String // INTERNAL | GOOGLE | APPLE_ICS
+  accountEmail   String?
+  status         String    @default("CONNECTED") // CONNECTED | NEEDS_RECONNECT | DISCONNECTED
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  importAllDay   Boolean   @default(false)
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events CalendarEvent[]
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  userId         String
+  calendarId     String
+  provider       String // INTERNAL | GOOGLE | APPLE_ICS
+  externalId     String?
+  title          String
+  date           String // YYYY-MM-DD
+  startTime      String // HH:MM
+  endTime        String // HH:MM
+  isAllDay       Boolean  @default(false)
+  locationName   String?
+  address        String?
+  lat            Float?
+  lng            Float?
+  isHard         Boolean  @default(true)
+  recurrenceRule String?
+  reminderMin    Int      @default(15)
+  linkedTaskId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendar CalendarConnection @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([calendarId])
+}
+
+model DayPlan {
+  id                       String   @id @default(cuid())
+  userId                   String
+  date                     String // YYYY-MM-DD
+  state                    String   @default("DRAFT") // EMPTY | DRAFT | ACTIVE | COMPLETED
+  currentVersion           Int      @default(1)
+  totalKm                  Float    @default(0)
+  totalTravelMin           Int      @default(0)
+  naiveTravelMin           Int      @default(0)
+  savedMin                 Int      @default(0)
+  providerUsed             String   @default("CACHE") // GOOGLE | HERE | OSRM | CACHE
+  isEstimateWithoutTraffic Boolean  @default(false)
+  lastUpdatedAt            DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions PlanVersion[]
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model PlanVersion {
+  id               String   @id @default(cuid())
+  dayPlanId        String
+  version          Int
+  summary          String
+  deltaMinutes     Int      @default(0)
+  deltaKm          Float    @default(0)
+  shiftedTasksJson String   @default("[]")
+  snapshotJson     String   @default("[]")
+  createdAt        DateTime @default(now())
+
+  dayPlan DayPlan @relation(fields: [dayPlanId], references: [id], onDelete: Cascade)
+
+  @@index([dayPlanId, version])
+}
+
+model PushSubscriptionRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([userId])
+}

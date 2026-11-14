@@ -1,0 +1,43 @@
+/* Journo Three-Layer Design Tokens */
+
+:root {
+  /* 1. Primitive Tokens */
+  --journo-cream-50: #FAF6EA;
+  --journo-cream-100: #F2ECE0;
+  --journo-cream-200: #E5DEC9;
+  --journo-white: #FFFFFF;
+  --journo-forest-900: #163B32;
+  --journo-forest-800: #245246;
+  --journo-forest-600: #3E6B5F;
+  --journo-terracotta-500: #D9623B;
+  --journo-terracotta-600: #C0512D;
+  --journo-terracotta-50: #FBECE7;
+  --journo-emerald-600: #1E7A56;
+  --journo-amber-600: #D97706;
+  --journo-red-600: #C93B2B;
+
+  /* 2. Semantic Tokens */
+  --bg-cream: var(--journo-cream-50);
+  --bg-surface: var(--journo-white);
+  --bg-muted: var(--journo-cream-100);
+  --forest-deep: var(--journo-forest-900);
+  --forest-muted: var(--journo-forest-800);
+  --text-muted: var(--journo-forest-600);
+  --terracotta: var(--journo-terracotta-500);
+  --terracotta-hover: var(--journo-terracotta-600);
+  --terracotta-soft: var(--journo-terracotta-50);
+  --border-subtle: var(--journo-cream-200);
+  --status-safe: var(--journo-emerald-600);
+  --status-warn: var(--journo-amber-600);
+  --status-danger: var(--journo-red-600);
+
+  /* 3. Component Tokens */
+  --btn-primary-bg: var(--terracotta);
+  --btn-primary-hover: var(--terracotta-hover);
+  --btn-primary-fg: var(--journo-white);
+  --route-line-color: var(--terracotta);
+  --map-anchor-pin: var(--forest-deep);
+  --map-flex-pin: var(--terracotta);
+  --radius-outer: 1rem;
+  --radius-inner: 0.75rem;
+}

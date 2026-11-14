@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String
+  avatarUrl          String?
+  tier               String    @default("FREE")
+  transportModes     String    @default("BOTH")
+  homeAddress        String    @default("Highvill Astana, Baitursynov St 5, Astana")
+  homeLat            Float     @default(51.1245)
+  homeLng            Float     @default(71.4662)
+  workAddress        String?   @default("Astana Hub, Mangilik El Ave 55/8, Astana")
+  workLat            Float?    @default(51.0894)
+  workLng            Float?    @default(71.4158)
+  tempBaseAddress    String?
+  tempBaseLat        Float?
+  tempBaseLng        Float?
+  currentCity        String    @default("Astana")
+  currentTimezone    String    @default("Asia/Almaty")
+  homeCity           String    @default("Astana")
+  homeTimezone       String    @default("Asia/Almaty")
+  delayThresholdMin  Int       @default(5)
+  quietHoursStart    String    @default("22:00")
+  quietHoursEnd      String    @default("07:00")
+  preferredNavApp    String    @default("GOOGLE")
+  onboardingStep     Int       @default(9)
+  stripeCustomerId   String?
+  subscriptionEndsAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tasks               Task[]
+  series              TaskSeries[]
+  calendarConnections CalendarConnection[]
+  calendarEvents      CalendarEvent[]
+  dayPlans            DayPlan[]
+  pushSubscriptions   PushSubscriptionRecord[]
+}
+
+model Task {
+  id                    String    @id @default(cuid())
+  userId                String
+  title                 String
+  locationName          String?
+  address               String?
+  lat                   Float?
+  lng                   Float?
+  date                  String
+  windowStart           String?
+  windowEnd             String?
+  durationMin           Int       @default(30)
+  priority              String    @default("MEDIUM")
+  isFlexible            Boolean   @default(true)
+  status                String    @default("PLANNED")
+  source                String    @default("TASK")
+  externalId            String?
+  seriesId              String?
+  seriesOccurrenceIndex Int?
+  seriesTotalCount      Int?
+  city                  String    @default("Astana")
+  timezone              String    @default("Asia/Almaty")
+  plannedOrder          Int?
+  departureTime         String?
+  eta                   String?
+  bufferMin             Int?
+  legMode               String?
+  legDurationWalkMin    Int?
+  legDurationTransitMin Int?
+  legDistanceKm         Float?
+  legModeChosenByUser   Boolean   @default(false)
+  exceedsFreeLimit      Boolean   @default(false)
+  startedAt             DateTime?
+  extendedMin           Int       @default(0)
+  deletedInCalendar     Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  series TaskSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([seriesId])
+  @@index([status])
+}
+
+model TaskSeries {
+  id             String   @id @default(cuid())
+  userId         String
+  title          String
+  locationName   String
+  address        String
+  lat            Float
+  lng            Float
+  mode           String   @default("SPECIFIC_DAYS")
+  daysOfWeek     String?
+  timesPerWeek   Int?
+  windowStart    String?
+  windowEnd      String?
+  durationMin    Int      @default(60)
+  isFlexible     Boolean  @default(false)
+  endType        String   @default("THREE_MONTHS")
+  endDate        String
+  totalCount     Int      @default(39)
+  completedCount Int      @default(12)
+  status         String   @default("ACTIVE")
+  city           String   @default("Astana")
+  timezone       String   @default("Asia/Almaty")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([userId, status])
+}
+
+model CalendarConnection {
+  id             String    @id @default(cuid())
+  userId         String
+  provider       String
+  accountEmail   String?
+  status         String    @default("CONNECTED")
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  importAllDay   Boolean   @default(false)
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events CalendarEvent[]
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  userId         String
+  calendarId     String
+  provider       String
+  externalId     String?
+  title          String
+  date           String
+  startTime      String
+  endTime        String
+  isAllDay       Boolean  @default(false)
+  locationName   String?
+  address        String?
+  lat            Float?
+  lng            Float?
+  isHard         Boolean  @default(true)
+  recurrenceRule String?
+  reminderMin    Int      @default(15)
+  linkedTaskId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendar CalendarConnection @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([calendarId])
+}
+
+model DayPlan {
+  id                       String   @id @default(cuid())
+  userId                   String
+  date                     String
+  state                    String   @default("DRAFT")
+  currentVersion           Int      @default(1)
+  totalKm                  Float    @default(0)
+  totalTravelMin           Int      @default(0)
+  naiveTravelMin           Int      @default(0)
+  savedMin                 Int      @default(0)
+  providerUsed             String   @default("CACHE")
+  isEstimateWithoutTraffic Boolean  @default(false)
+  lastUpdatedAt            DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions PlanVersion[]
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model PlanVersion {
+  id               String   @id @default(cuid())
+  dayPlanId        String
+  version          Int
+  summary          String
+  deltaMinutes     Int      @default(0)
+  deltaKm          Float    @default(0)
+  shiftedTasksJson String   @default("[]")
+  snapshotJson     String   @default("[]")
+  createdAt        DateTime @default(now())
+
+  dayPlan DayPlan @relation(fields: [dayPlanId], references: [id], onDelete: Cascade)
+
+  @@index([dayPlanId, version])
+}
+
+model PushSubscriptionRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([userId])
+}
