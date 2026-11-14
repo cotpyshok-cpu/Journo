@@ -89,50 +89,99 @@ export async function POST(req: NextRequest) {
     });
 
     let createdTask = null;
+    const createdTasks = [];
     if (data.createTodayOccurrence) {
-      const targetDate = data.date || getDateInTimezone(user.currentTimezone || "Asia/Almaty", 0);
-      let exceedsFreeLimit = false;
-      if (user.tier === "FREE") {
-        const count = await prisma.task.count({
-          where: {
-            userId: user.id,
-            date: targetDate,
-            lat: { not: null },
-            exceedsFreeLimit: false,
-          },
-        });
-        if (count >= 5) {
-          exceedsFreeLimit = true;
+      const startDateIso = data.date || getDateInTimezone(user.currentTimezone || "Asia/Almaty", 0);
+      const dayTokenMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const requestedDays = new Set(
+        (series.daysOfWeek || "")
+          .split(",")
+          .map((d) => d.trim().slice(0, 3).toLowerCase())
+          .filter(Boolean)
+      );
+      const perWeekDefaultOrder = [1, 3, 5, 2, 4, 6, 0];
+      const allowedWeekdaysForCount = new Set(
+        perWeekDefaultOrder.slice(0, Math.min(7, Math.max(1, series.timesPerWeek ?? 3)))
+      );
+
+      const startDt = new Date(`${startDateIso}T12:00:00Z`);
+      const endLimitIso = series.endDate || "2099-12-31";
+      const maxCap =
+        series.endType === "N_OCCURRENCES"
+          ? Math.max(1, Math.min(60, series.totalCount))
+          : Math.max(1, Math.min(45, series.totalCount || 30));
+
+      const targetDates: string[] = [];
+      // Horizon: up to 42 days (6 weeks) from startDate so calendar day/week views show upcoming repeats right away
+      for (let offset = 0; offset < 42 && targetDates.length < maxCap; offset++) {
+        const cur = new Date(startDt.getTime() + offset * 86_400_000);
+        const curIso = cur.toISOString().slice(0, 10);
+        if (curIso > endLimitIso) break;
+        const dowIdx = cur.getUTCDay();
+        const dowToken = dayTokenMap[dowIdx].toLowerCase();
+
+        const matches =
+          offset === 0
+            ? true
+            : series.mode === "SPECIFIC_DAYS"
+              ? requestedDays.size === 0 || requestedDays.has(dowToken)
+              : allowedWeekdaysForCount.has(dowIdx);
+
+        if (matches) {
+          targetDates.push(curIso);
         }
       }
 
-      createdTask = await prisma.task.create({
-        data: {
-          userId: user.id,
-          title: series.title,
-          locationName: series.locationName,
-          address: series.address,
-          lat: series.lat,
-          lng: series.lng,
-          date: targetDate,
-          windowStart: series.windowStart,
-          windowEnd: series.windowEnd,
-          durationMin: series.durationMin,
-          priority: "MEDIUM",
-          isFlexible: series.isFlexible,
-          status: "PLANNED",
-          source: "SERIES",
-          seriesId: series.id,
-          seriesOccurrenceIndex: 1,
-          seriesTotalCount: series.totalCount,
-          city: user.currentCity,
-          timezone: user.currentTimezone,
-          exceedsFreeLimit,
-        },
-      });
+      for (let i = 0; i < targetDates.length; i++) {
+        const targetDate = targetDates[i];
+        let exceedsFreeLimit = false;
+        if (user.tier === "FREE") {
+          const count = await prisma.task.count({
+            where: {
+              userId: user.id,
+              date: targetDate,
+              lat: { not: null },
+              exceedsFreeLimit: false,
+            },
+          });
+          if (count >= 5) {
+            exceedsFreeLimit = true;
+          }
+        }
+
+        const task = await prisma.task.create({
+          data: {
+            userId: user.id,
+            title: series.title,
+            locationName: series.locationName,
+            address: series.address,
+            lat: series.lat,
+            lng: series.lng,
+            date: targetDate,
+            windowStart: series.windowStart,
+            windowEnd: series.windowEnd,
+            durationMin: series.durationMin,
+            priority: "MEDIUM",
+            isFlexible: series.isFlexible,
+            status: "PLANNED",
+            source: "SERIES",
+            seriesId: series.id,
+            seriesOccurrenceIndex: i + 1,
+            seriesTotalCount: series.totalCount,
+            city: user.currentCity,
+            timezone: user.currentTimezone,
+            exceedsFreeLimit,
+          },
+        });
+        createdTasks.push(task);
+      }
+      createdTask = createdTasks[0] ?? null;
     }
 
-    return NextResponse.json({ series, createdTask }, { status: 201 });
+    return NextResponse.json(
+      { series, createdTask, createdTasks, createdCount: createdTasks.length },
+      { status: 201 }
+    );
   } catch (error) {
     return handleApiError(error);
   }

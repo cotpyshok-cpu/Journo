@@ -9,7 +9,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 const updateUserSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   tier: z.enum(["FREE", "PRO", "DEV"]).optional(),
-  transportModes: z.enum(["BOTH", "WALK", "TRANSIT"]).optional(),
+  transportModes: z.enum(["BOTH", "WALK", "TRANSIT", "CAR"]).optional(),
   homeAddress: z.string().min(2).max(200).optional(),
   homeLat: z.number().min(-90).max(90).optional(),
   homeLng: z.number().min(-180).max(180).optional(),

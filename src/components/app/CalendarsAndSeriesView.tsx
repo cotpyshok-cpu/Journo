@@ -167,9 +167,10 @@ export function CalendarsAndSeriesView({
   const [evIsHard, setEvIsHard] = useState(true);
   const [editingTaskForLoc, setEditingTaskForLoc] = useState<TaskItem | null>(null);
 
-  // S21c Delete Event Confirmation Modal
+  // S21c Delete Event / Task Confirmation Modal
   const [pendingDeleteEvent, setPendingDeleteEvent] = useState<{
     id: string;
+    kind: "EVENT" | "TASK";
     title: string;
     date: string;
     startTime: string;
@@ -400,6 +401,15 @@ export function CalendarsAndSeriesView({
     windowEnd: string | null;
     durationMin: number;
     isFlexible: boolean;
+    repeatConfig?: {
+      enabled: boolean;
+      mode: "SPECIFIC_DAYS" | "N_PER_WEEK";
+      daysOfWeek: string;
+      timesPerWeek: number;
+      endType: "UNTIL_DATE" | "N_OCCURRENCES" | "THREE_MONTHS" | "ENDLESS";
+      endDate: string;
+      totalCount: number;
+    };
   }) => {
     setBusyAction("create_event");
     try {
@@ -432,6 +442,45 @@ export function CalendarsAndSeriesView({
       const startTime = payload.windowStart || evStart || "15:00";
       const sMin = hhmmToMin(startTime) ?? 15 * 60;
       const endTime = payload.windowEnd || minToHhmm(sMin + (payload.durationMin || 45));
+
+      if (payload.repeatConfig?.enabled) {
+        const seriesRes = await fetch("/api/series", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: payload.title,
+            locationName: payload.locationName || payload.title,
+            address: payload.address || user.homeAddress || user.currentCity,
+            lat: payload.lat ?? user.homeLat,
+            lng: payload.lng ?? user.homeLng,
+            mode: payload.repeatConfig.mode,
+            daysOfWeek: payload.repeatConfig.daysOfWeek,
+            timesPerWeek: payload.repeatConfig.timesPerWeek,
+            windowStart: startTime,
+            windowEnd: endTime,
+            durationMin: payload.durationMin || 45,
+            isFlexible: payload.isFlexible,
+            endType: payload.repeatConfig.endType,
+            endDate: payload.repeatConfig.endDate,
+            totalCount: payload.repeatConfig.totalCount,
+            date: payload.date,
+            createTodayOccurrence: true,
+          }),
+        });
+        if (seriesRes.ok) {
+          const data = await seriesRes.json();
+          await onRefresh();
+          if (payload.lat != null && onRecalculatePlan) {
+            await onRecalculatePlan();
+          }
+          setShowEventModal(false);
+          onNotify(
+            `Repeating event added across ${data.createdCount ?? 1} scheduled day(s).`
+          );
+        }
+        return;
+      }
+
       const res = await fetch("/api/calendars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -464,10 +513,18 @@ export function CalendarsAndSeriesView({
     }
   };
 
-  const handleConfirmDeleteEvent = async (id: string, recalculate: boolean) => {
+  const handleConfirmDeleteEvent = async (
+    id: string,
+    recalculate: boolean,
+    kind: "EVENT" | "TASK" = "EVENT"
+  ) => {
     setBusyAction(`del_ev_${id}`);
     try {
-      const res = await fetch(`/api/calendars?id=${encodeURIComponent(id)}`, {
+      const endpoint =
+        kind === "TASK"
+          ? `/api/tasks?id=${encodeURIComponent(id)}`
+          : `/api/calendars?id=${encodeURIComponent(id)}`;
+      const res = await fetch(endpoint, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -475,9 +532,9 @@ export function CalendarsAndSeriesView({
         await onRefresh();
         if (recalculate && onRecalculatePlan) {
           await onRecalculatePlan();
-          onNotify("Event deleted and route recalculated.");
+          onNotify("Removed from calendar and route recalculated.");
         } else {
-          onNotify("Event removed from calendar.");
+          onNotify("Removed from calendar.");
         }
       }
     } finally {
@@ -601,21 +658,27 @@ export function CalendarsAndSeriesView({
                 <div className="flex flex-wrap items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-[#C67D63]" />
                   <h3 className="text-sm font-bold text-[#2F453B]">Google Calendar</h3>
+                  {googleConn?.status === "NEEDS_RECONNECT" ? (
+                    <Badge variant="danger">Needs Reconnect</Badge>
+                  ) : googleConn?.status === "CONNECTED" ? (
+                    <Badge variant="safe">
+                      Connected {googleConn.accountEmail ? `· ${googleConn.accountEmail}` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge variant="neutral">Not connected</Badge>
+                  )}
                   {!isPro ? (
                     <Badge variant="coral">
                       <Lock className="mr-1 h-3 w-3" />
                       Pro
                     </Badge>
-                  ) : googleConn?.status === "NEEDS_RECONNECT" ? (
-                    <Badge variant="danger">Needs Reconnect</Badge>
-                  ) : googleConn?.status === "CONNECTED" ? (
-                    <Badge variant="safe">
-                      Connected {googleConn.accountEmail ? `(${googleConn.accountEmail})` : ""}
-                    </Badge>
-                  ) : (
-                    <Badge variant="neutral">Not connected</Badge>
-                  )}
+                  ) : null}
                 </div>
+                {googleConn?.status === "CONNECTED" && googleConn.accountEmail ? (
+                  <p className="mt-1 text-xs font-semibold text-[#3F7A63]">
+                    Connected Google account: <span className="underline">{googleConn.accountEmail}</span>
+                  </p>
+                ) : null}
                 <p className="mt-1 text-xs text-[#5E766B]">
                   Connect your Google account so your meetings appear in your daily route — Journo never edits or deletes your calendar.
                 </p>
@@ -1003,23 +1066,29 @@ export function CalendarsAndSeriesView({
                                 ) : null}
                               </div>
 
-                              {item.kind === "EVENT" &&
-                              item.provider === "INTERNAL" &&
-                              item.eventId ? (
+                              {(item.eventId || item.taskId) ? (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    const deleteAsEvent =
+                                      item.kind === "EVENT" &&
+                                      Boolean(item.eventId);
+                                    const targetId = deleteAsEvent
+                                      ? item.eventId!
+                                      : item.taskId || item.eventId!;
                                     setPendingDeleteEvent({
-                                      id: item.eventId!,
+                                      id: targetId,
+                                      kind: deleteAsEvent || !item.taskId ? "EVENT" : "TASK",
                                       title: item.title,
                                       date,
                                       startTime: item.startTime,
                                       endTime: item.endTime,
                                     });
                                   }}
-                                  aria-label={`Delete event ${item.title}`}
-                                  className="shrink-0 rounded-lg p-1 text-[#B05454] hover:bg-white/70"
+                                  aria-label={`Delete ${item.title}`}
+                                  title="Delete from calendar"
+                                  className="shrink-0 rounded-lg p-1 text-[#B05454] hover:bg-white/70 cursor-pointer"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -1210,15 +1279,43 @@ export function CalendarsAndSeriesView({
                                 key={item.key}
                                 style={{ top: `${topPx}px`, height: `${heightPx}px` }}
                                 title={`${item.title} (${item.startTime}–${item.endTime})`}
-                                className={`absolute inset-x-1 z-10 overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-xs ${getBlockClasses(
+                                className={`group absolute inset-x-1 z-10 flex items-start justify-between gap-1 overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-xs ${getBlockClasses(
                                   item
                                 )}`}
                               >
-                                <div className="truncate font-bold leading-tight">{item.title}</div>
-                                {heightPx >= 38 ? (
-                                  <div className="truncate text-[10px] opacity-75 tabular-nums">
-                                    {item.startTime}
-                                  </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate font-bold leading-tight">{item.title}</div>
+                                  {heightPx >= 38 ? (
+                                    <div className="truncate text-[10px] opacity-75 tabular-nums">
+                                      {item.startTime}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {(item.eventId || item.taskId) ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const deleteAsEvent =
+                                        item.kind === "EVENT" &&
+                                        Boolean(item.eventId);
+                                      const targetId = deleteAsEvent
+                                        ? item.eventId!
+                                        : item.taskId || item.eventId!;
+                                      setPendingDeleteEvent({
+                                        id: targetId,
+                                        kind: deleteAsEvent || !item.taskId ? "EVENT" : "TASK",
+                                        title: item.title,
+                                        date: day.iso,
+                                        startTime: item.startTime,
+                                        endTime: item.endTime,
+                                      });
+                                    }}
+                                    aria-label={`Delete ${item.title}`}
+                                    className="shrink-0 rounded p-0.5 text-[#B05454] opacity-75 hover:bg-white/80 hover:opacity-100 cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
                                 ) : null}
                               </div>
                             );
@@ -1700,7 +1797,8 @@ export function CalendarsAndSeriesView({
               size="sm"
               loading={busyAction === `del_ev_${pendingDeleteEvent?.id}`}
               onClick={() =>
-                pendingDeleteEvent && handleConfirmDeleteEvent(pendingDeleteEvent.id, false)
+                pendingDeleteEvent &&
+                handleConfirmDeleteEvent(pendingDeleteEvent.id, false, pendingDeleteEvent.kind)
               }
             >
               Delete without recalculating
@@ -1711,7 +1809,8 @@ export function CalendarsAndSeriesView({
               size="sm"
               loading={busyAction === `del_ev_${pendingDeleteEvent?.id}`}
               onClick={() =>
-                pendingDeleteEvent && handleConfirmDeleteEvent(pendingDeleteEvent.id, true)
+                pendingDeleteEvent &&
+                handleConfirmDeleteEvent(pendingDeleteEvent.id, true, pendingDeleteEvent.kind)
               }
             >
               Delete &amp; Recalculate

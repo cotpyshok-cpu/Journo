@@ -542,6 +542,9 @@ export function enrichDayBudgetAndTasks(params: {
   let dailyCapReached = false;
 
   const enrichedMap = new Map<string, TaskItem>();
+  let leftHomeByCar = false;
+  let anyLegUsedCar = false;
+  let firstRoutableSeen = false;
 
   for (const task of sorted) {
     const budgetRec = taskBudgets[task.id];
@@ -582,8 +585,18 @@ export function enrichDayBudgetAndTasks(params: {
 
       legBreakdowns.set(task.id, breakdown);
       const rawMode = (task.legMode ?? "TRANSIT") as TravelMode;
-      const activeMode: TravelMode =
+      const fallbackNonCar: TravelMode =
         rawMode === "CAR" && transportProfile.hasPersonalCar === false ? "TRANSIT" : rawMode;
+      const activeMode: TravelMode =
+        leftHomeByCar && !task.legModeChosenByUser && transportProfile.hasPersonalCar !== false
+          ? "CAR"
+          : fallbackNonCar;
+
+      if (!firstRoutableSeen) {
+        firstRoutableSeen = true;
+        if (activeMode === "CAR") leftHomeByCar = true;
+      }
+      if (activeMode === "CAR") anyLegUsedCar = true;
 
       if (activeMode === "WALK") legCost = 0;
       else if (activeMode === "CAR") legCost = breakdown.carCost;
@@ -639,6 +652,31 @@ export function enrichDayBudgetAndTasks(params: {
     });
   }
 
+  const routableSorted = sorted.filter(
+    (t) => t.lat != null && t.lng != null && !t.exceedsFreeLimit && t.status !== "SKIPPED"
+  );
+  const lastRoutable = routableSorted[routableSorted.length - 1];
+  const carContinuityActive = (leftHomeByCar || anyLegUsedCar) && transportProfile.hasPersonalCar !== false;
+  let returnHomeCarKm: number | undefined;
+  let returnHomeCarMin: number | undefined;
+  let returnHomeCarCost: number | undefined;
+  if (carContinuityActive && lastRoutable && lastRoutable.legDistanceKm != null) {
+    // Estimate return-home car drive using last leg distance (~symmetrical loop anchor) and zero parking at home
+    returnHomeCarKm = Number(Math.max(1.2, lastRoutable.legDistanceKm * 0.9).toFixed(1));
+    returnHomeCarMin = Math.max(5, Math.round(returnHomeCarKm * 2.1 + 3));
+    const returnBreakdown = calculateLegTransportOptions({
+      distanceKm: returnHomeCarKm,
+      walkMin: Math.round(returnHomeCarKm * 12),
+      transitMin: Math.round(returnHomeCarKm * 4 + 4),
+      partySize: 1,
+      profile: transportProfile,
+      transitSpentSoFarTotal,
+      parkingCostOverride: 0,
+    });
+    returnHomeCarCost = returnBreakdown.carCost;
+    plannedTransportTotal = Number((plannedTransportTotal + returnHomeCarCost).toFixed(2));
+  }
+
   const enrichedTasks = tasks.map((t) => enrichedMap.get(t.id) ?? t);
   const plannedGrandTotal = Number((plannedTransportTotal + plannedVenueTotal).toFixed(2));
   const actualGrandTotal = Number((actualTransportTotal + actualVenueTotal).toFixed(2));
@@ -657,6 +695,10 @@ export function enrichDayBudgetAndTasks(params: {
       totalStopsCount: tasks.filter((t) => !t.exceedsFreeLimit && t.status !== "SKIPPED").length,
       varianceAmount: Number((actualGrandTotal - plannedGrandTotal).toFixed(2)),
       transitDailyCapReached: dailyCapReached,
+      carContinuityActive,
+      returnHomeCarKm,
+      returnHomeCarMin,
+      returnHomeCarCost,
     },
   };
 }

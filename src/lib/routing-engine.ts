@@ -319,7 +319,8 @@ function evaluateLegMode(
   cell: LegMatrixCell,
   task: TaskItem,
   transportPref: TransportPref,
-  secondModeNotCalculated: boolean
+  secondModeNotCalculated: boolean,
+  carContinuityActive = false
 ): {
   chosenMode: TravelMode;
   fastestMode: TravelMode | null;
@@ -329,21 +330,36 @@ function evaluateLegMode(
 } {
   const walkMin = cell.walkMin;
   const transitMin = cell.transitMin;
+  const carMin = getModeTravelMin("CAR", cell);
   const diff = Math.abs(walkMin - transitMin);
   const isEqualSpeed = diff < 3;
-  const fastestMode: TravelMode | null = isEqualSpeed
-    ? null
-    : walkMin <= transitMin
-      ? "WALK"
-      : "TRANSIT";
+  const fastestMode: TravelMode | null =
+    transportPref === "CAR" || carContinuityActive
+      ? carMin <= walkMin && carMin <= transitMin
+        ? "CAR"
+        : isEqualSpeed
+          ? null
+          : walkMin <= transitMin
+            ? "WALK"
+            : "TRANSIT"
+      : isEqualSpeed
+        ? null
+        : walkMin <= transitMin
+          ? "WALK"
+          : "TRANSIT";
 
   if (secondModeNotCalculated && !task.legModeChosenByUser) {
-    const primary: TravelMode = transportPref === "TRANSIT" ? "TRANSIT" : "WALK";
+    const primary: TravelMode =
+      transportPref === "CAR" || carContinuityActive
+        ? "CAR"
+        : transportPref === "TRANSIT"
+          ? "TRANSIT"
+          : "WALK";
     return {
       chosenMode: primary,
       fastestMode: null,
       isEqualSpeed: false,
-      travelMin: primary === "WALK" ? walkMin : transitMin,
+      travelMin: getModeTravelMin(primary, cell),
       suggestSecondMode: false,
     };
   }
@@ -354,6 +370,16 @@ function evaluateLegMode(
       fastestMode,
       isEqualSpeed,
       travelMin: getModeTravelMin(task.legMode, cell),
+      suggestSecondMode: false,
+    };
+  }
+
+  if (transportPref === "CAR" || carContinuityActive) {
+    return {
+      chosenMode: "CAR",
+      fastestMode,
+      isEqualSpeed: false,
+      travelMin: carMin,
       suggestSecondMode: false,
     };
   }
@@ -394,9 +420,10 @@ function evaluateLegMode(
 function getEffectiveTravelMin(
   cell: LegMatrixCell,
   task: TaskItem,
-  transportPref: TransportPref
+  transportPref: TransportPref,
+  carContinuityActive = false
 ): number {
-  return evaluateLegMode(cell, task, transportPref, false).travelMin;
+  return evaluateLegMode(cell, task, transportPref, false, carContinuityActive).travelMin;
 }
 
 function simulateOrder(
@@ -408,7 +435,9 @@ function simulateOrder(
 ): {
   feasible: boolean;
   totalTravelMin: number;
+  roundTripScoreMin: number;
   totalKm: number;
+  carContinuityActive: boolean;
   failedTaskId?: string;
   failedReason?: string;
   schedule: {
@@ -426,11 +455,19 @@ function simulateOrder(
   let prevId = "START";
   let totalTravelMin = 0;
   let totalKm = 0;
+  let carActive = transportPref === "CAR";
   const schedule = [];
 
   for (const task of orderedTasks) {
     const cell = getCell(matrix, prevId, task.id, pointsMap);
-    const travelMin = getEffectiveTravelMin(cell, task, transportPref);
+    const evalRes = evaluateLegMode(cell, task, transportPref, false, carActive);
+    if (evalRes.chosenMode === "CAR") {
+      carActive = true;
+    } else if (prevId === "START" && task.legModeChosenByUser) {
+      // User explicitly left home without car on first leg
+      carActive = false;
+    }
+    const travelMin = evalRes.travelMin;
     const departureMin = currentTime;
     const arrivalMin = departureMin + travelMin;
     const wStart = parseTimeToMinutes(task.windowStart);
@@ -441,7 +478,9 @@ function simulateOrder(
       return {
         feasible: false,
         totalTravelMin,
+        roundTripScoreMin: totalTravelMin,
         totalKm,
+        carContinuityActive: carActive,
         failedTaskId: task.id,
         failedReason: `"${task.title}" arrives at ${formatMinutesToTime(
           arrivalMin
@@ -457,7 +496,9 @@ function simulateOrder(
       return {
         feasible: false,
         totalTravelMin,
+        roundTripScoreMin: totalTravelMin,
         totalKm,
+        carContinuityActive: carActive,
         failedTaskId: task.id,
         failedReason: `"${task.title}" cannot start before window end ${task.windowEnd}.`,
         schedule: [],
@@ -483,10 +524,20 @@ function simulateOrder(
     prevId = task.id;
   }
 
+  // If user left Home on a car, optimize stop order so the last stop finishes closer to Home for the drive back.
+  let roundTripScoreMin = totalTravelMin;
+  if (carActive && orderedTasks.length > 0) {
+    const lastTask = orderedTasks[orderedTasks.length - 1];
+    const returnCell = getCell(matrix, lastTask.id, "START", pointsMap);
+    roundTripScoreMin += getModeTravelMin("CAR", returnCell);
+  }
+
   return {
     feasible: true,
     totalTravelMin,
+    roundTripScoreMin,
     totalKm: Number(totalKm.toFixed(2)),
+    carContinuityActive: carActive,
     schedule,
   };
 }
@@ -637,7 +688,7 @@ export async function solveDailySchedule(
       const candidate = [...bestOrder.slice(0, pos), flex, ...bestOrder.slice(pos)];
       const sim = simulateOrder(candidate, dayStartMin, matrix, pointsMap, input.transportPref);
       if (sim.feasible) {
-        if (!localBestSim || sim.totalTravelMin < localBestSim.totalTravelMin) {
+        if (!localBestSim || sim.roundTripScoreMin < localBestSim.roundTripScoreMin) {
           localBestOrder = candidate;
           localBestSim = sim;
         }
@@ -701,9 +752,12 @@ export async function solveDailySchedule(
   // Step 3: Compute Naive order travel time (original array order) for Evening Review / Savings metric
   let naiveTravelMin = 0;
   let naivePrev = "START";
+  let naiveCarActive = input.transportPref === "CAR";
   for (const t of routableTasks) {
     const cell = getCell(matrix, naivePrev, t.id, pointsMap);
-    naiveTravelMin += getEffectiveTravelMin(cell, t, input.transportPref);
+    const naiveEval = evaluateLegMode(cell, t, input.transportPref, false, naiveCarActive);
+    if (naiveEval.chosenMode === "CAR") naiveCarActive = true;
+    naiveTravelMin += naiveEval.travelMin;
     naivePrev = t.id;
   }
   // Ensure realistic saved comparison even if user happened to input them in near-optimal order
@@ -715,6 +769,7 @@ export async function solveDailySchedule(
   const scheduledTasks: TaskItem[] = [];
   const totalLegs = bestSim.schedule.length;
   let prevStopId: string | "START" = "START";
+  let carContinuityActive = input.transportPref === "CAR";
 
   for (let idx = 0; idx < totalLegs; idx++) {
     const slot = bestSim.schedule[idx];
@@ -726,8 +781,14 @@ export async function solveDailySchedule(
       cell,
       slot.task,
       input.transportPref,
-      secondModeNotCalculated
+      secondModeNotCalculated,
+      carContinuityActive
     );
+    if (evalMode.chosenMode === "CAR") {
+      carContinuityActive = true;
+    } else if (idx === 0 && slot.task.legModeChosenByUser) {
+      carContinuityActive = false;
+    }
 
     const wEnd = parseTimeToMinutes(slot.task.windowEnd);
     const lateWarning =

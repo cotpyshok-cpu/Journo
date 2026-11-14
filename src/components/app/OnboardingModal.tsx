@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Bell,
   Briefcase,
   Calendar,
+  Car,
   Check,
   Footprints,
   Home,
@@ -13,7 +14,8 @@ import {
   Sparkles,
   TrainFront,
 } from "lucide-react";
-import { resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
+import { PlacePreset, resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
+import { resolveAddressWithLiveFallback, searchLivePlaces } from "@/lib/geocode-client";
 import { TransportPref, UserProfile } from "@/lib/types";
 import { Badge, Button, Modal, inputClass } from "@/components/ui/primitives";
 
@@ -49,9 +51,53 @@ export function OnboardingModal({
   const [homeError, setHomeError] = useState<string | null>(null);
   const [geoStatus, setGeoStatus] = useState<"idle" | "granted" | "denied">("idle");
   const [pushStatus, setPushStatus] = useState<"idle" | "granted" | "denied">("idle");
+  const [liveHomeSuggestions, setLiveHomeSuggestions] = useState<PlacePreset[]>([]);
+  const [liveWorkSuggestions, setLiveWorkSuggestions] = useState<PlacePreset[]>([]);
 
-  const homeSuggestions = searchPlacesLocal(homeAddress, user.currentCity).slice(0, 5);
-  const workSuggestions = searchPlacesLocal(workAddress, user.currentCity).slice(0, 4);
+  useEffect(() => {
+    if (!isOpen || step !== 4) return;
+    const q = homeAddress.trim();
+    if (q.length < 2) {
+      setLiveHomeSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const results = await searchLivePlaces(q, user.currentCity, controller.signal);
+      setLiveHomeSuggestions(results.slice(0, 6));
+    }, 260);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isOpen, step, homeAddress, user.currentCity]);
+
+  useEffect(() => {
+    if (!isOpen || step !== 4) return;
+    const q = workAddress.trim();
+    if (q.length < 2) {
+      setLiveWorkSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const results = await searchLivePlaces(q, user.currentCity, controller.signal);
+      setLiveWorkSuggestions(results.slice(0, 5));
+    }, 260);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isOpen, step, workAddress, user.currentCity]);
+
+  const homeSuggestions =
+    liveHomeSuggestions.length > 0
+      ? liveHomeSuggestions
+      : searchPlacesLocal(homeAddress, user.currentCity).slice(0, 5);
+  const workSuggestions =
+    liveWorkSuggestions.length > 0
+      ? liveWorkSuggestions
+      : searchPlacesLocal(workAddress, user.currentCity).slice(0, 4);
 
   const handleNextStep = async () => {
     if (step === 3) {
@@ -66,13 +112,51 @@ export function OnboardingModal({
         return;
       }
       setHomeError(null);
+      let finalHomeLat = homeLat;
+      let finalHomeLng = homeLng;
+      let finalHomeAddr = homeAddress;
+      const pickedHomeFromList = homeSuggestions.some(
+        (s) => s.lat === homeLat && s.lng === homeLng
+      );
+      if (homeAddress.trim() !== user.homeAddress.trim() && !pickedHomeFromList) {
+        const resolvedHome = await resolveAddressWithLiveFallback(homeAddress, user.currentCity);
+        finalHomeLat = resolvedHome.lat;
+        finalHomeLng = resolvedHome.lng;
+        if (resolvedHome.fromLiveGeocoder) {
+          finalHomeAddr = resolvedHome.address;
+          setHomeAddress(resolvedHome.address);
+        }
+        setHomeLat(finalHomeLat);
+        setHomeLng(finalHomeLng);
+      }
+
+      let finalWorkLat = workLat;
+      let finalWorkLng = workLng;
+      let finalWorkAddr = workAddress.trim() ? workAddress : null;
+      if (finalWorkAddr) {
+        const pickedWorkFromList = workSuggestions.some(
+          (s) => s.lat === workLat && s.lng === workLng
+        );
+        if (!pickedWorkFromList && finalWorkAddr !== (user.workAddress || "")) {
+          const resolvedWork = await resolveAddressWithLiveFallback(finalWorkAddr, user.currentCity);
+          finalWorkLat = resolvedWork.lat;
+          finalWorkLng = resolvedWork.lng;
+          if (resolvedWork.fromLiveGeocoder) {
+            finalWorkAddr = resolvedWork.address;
+            setWorkAddress(resolvedWork.address);
+          }
+          setWorkLat(finalWorkLat);
+          setWorkLng(finalWorkLng);
+        }
+      }
+
       await onSaveProfile({
-        homeAddress,
-        homeLat,
-        homeLng,
-        workAddress: workAddress.trim() ? workAddress : null,
-        workLat: workAddress.trim() ? workLat : null,
-        workLng: workAddress.trim() ? workLng : null,
+        homeAddress: finalHomeAddr,
+        homeLat: finalHomeLat,
+        homeLng: finalHomeLng,
+        workAddress: finalWorkAddr,
+        workLat: finalWorkAddr ? finalWorkLat : null,
+        workLng: finalWorkAddr ? finalWorkLng : null,
         onboardingStep: 5,
       });
       setStep(5);
@@ -156,6 +240,12 @@ export function OnboardingModal({
           <div className="grid gap-3">
             {(
               [
+                {
+                  id: "CAR",
+                  title: "Personal Car (Car-First)",
+                  desc: "Prioritizes driving options first and plans round-trip car routes back home.",
+                  icon: <Car className="h-5 w-5 text-[#C67D63]" aria-hidden="true" />,
+                },
                 {
                   id: "BOTH",
                   title: "Walk + Public Transit (Recommended)",
@@ -299,19 +389,25 @@ export function OnboardingModal({
               className={inputClass}
             />
             {workSuggestions.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="max-h-36 overflow-y-auto rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] divide-y divide-[#DFDBD0]/60">
                 {workSuggestions.map((p) => (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      setWorkAddress(`${p.name}, ${p.address}`);
+                      setWorkAddress(p.address || `${p.name}, ${user.currentCity}`);
                       setWorkLat(p.lat);
                       setWorkLng(p.lng);
                     }}
-                    className="rounded-lg border border-[#DFDBD0] bg-[#F6F4EF] px-2.5 py-1.5 text-xs font-medium text-[#2F453B] hover:bg-[#ECE9E1] cursor-pointer"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-white cursor-pointer"
                   >
-                    {p.name}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-[#2F453B] truncate">{p.name}</div>
+                      <div className="text-[11px] text-[#5E766B] truncate">{p.address}</div>
+                    </div>
+                    <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#5E766B] border border-[#DFDBD0]">
+                      {p.category}
+                    </span>
                   </button>
                 ))}
               </div>

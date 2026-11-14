@@ -710,7 +710,7 @@ export function MorningPlanView({
                       (() => {
                         const breakdown = legBreakdowns?.get(task.id);
                         const effFastest = breakdown?.fastestMode ?? fastestMode;
-                        const modeButtons: {
+                        const orderedModes: {
                           id: TravelMode;
                           label: string;
                           min: number;
@@ -763,6 +763,13 @@ export function MorningPlanView({
                             icon: <Users className="h-3.5 w-3.5" aria-hidden="true" />,
                           },
                         ];
+                        const modeButtons =
+                          user.transportModes === "CAR" && hasPersonalCar
+                            ? [
+                                ...orderedModes.filter((m) => m.id === "CAR"),
+                                ...orderedModes.filter((m) => m.id !== "CAR"),
+                              ]
+                            : orderedModes;
 
                         return (
                           <div className="mt-3 pt-3 border-t border-[#DFDBD0] space-y-2">
@@ -869,7 +876,11 @@ export function MorningPlanView({
                                 {!isEqualSpeed && effFastest && diffMin >= 3 ? (
                                   <span className="font-medium text-[#3F7A63]">
                                     {diffMin} min faster by{" "}
-                                    {effFastest === "WALK" ? "walking" : "transit"}
+                                    {effFastest === "WALK"
+                                      ? "walking"
+                                      : effFastest === "CAR"
+                                        ? "car"
+                                        : "transit"}
                                   </span>
                                 ) : null}
                               </div>
@@ -885,6 +896,20 @@ export function MorningPlanView({
           })}
         </div>
       )}
+
+      {budgetSummary?.carContinuityActive && activeRoutableTasks.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#DFDBD0] bg-[#FAF6EA]/90 px-4 py-3 text-xs text-[#2F453B]">
+          <span className="flex items-center gap-2 font-medium">
+            <Car className="h-4 w-4 text-[#C67D63] shrink-0" aria-hidden="true" />
+            <span>
+              <strong>Round-trip by car:</strong> You left Home in your car — Journo keeps driving
+              legs continuous and reserves ~{budgetSummary.returnHomeCarMin ?? 10} min (
+              {budgetSummary.returnHomeCarKm ?? 2.5} km · $
+              {(budgetSummary.returnHomeCarCost ?? 0).toFixed(2)}) for the drive home.
+            </span>
+          </span>
+        </div>
+      ) : null}
 
       {!isPastDate && !conflict && activeRoutableTasks.length >= 2 ? (
         <div className="pt-2 flex justify-end">

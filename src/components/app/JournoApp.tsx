@@ -478,6 +478,9 @@ export function JournoApp() {
 
   // Handlers
   const handleSaveProfile = async (patch: Partial<UserProfile>) => {
+    if (patch.transportModes === "CAR" && !transportProfile.hasPersonalCar) {
+      handleUpdateTransportProfile({ ...transportProfile, hasPersonalCar: true });
+    }
     const res = await fetch("/api/user", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

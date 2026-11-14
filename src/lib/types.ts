@@ -1,5 +1,5 @@
 export type UserTier = "FREE" | "PRO" | "DEV";
-export type TransportPref = "BOTH" | "WALK" | "TRANSIT";
+export type TransportPref = "BOTH" | "WALK" | "TRANSIT" | "CAR";
 export type TravelMode = "WALK" | "TRANSIT" | "CAR" | "TAXI" | "CARPOOL";
 export type PriceSource = "PRICE_INTEL" | "GOOGLE_PLACES" | "TICKETMASTER" | "YELP" | "CUSTOM";
 export type NavApp = "GOOGLE" | "APPLE" | "WAZE";
@@ -275,6 +275,10 @@ export interface DailyBudgetSummary {
   totalStopsCount: number;
   varianceAmount: number;
   transitDailyCapReached: boolean;
+  carContinuityActive?: boolean;
+  returnHomeCarKm?: number;
+  returnHomeCarMin?: number;
+  returnHomeCarCost?: number;
 }
 
 export interface SystemSimulationFlags {

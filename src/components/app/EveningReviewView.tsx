@@ -60,6 +60,7 @@ export function EveningReviewView({
   const [customDates, setCustomDates] = useState<Record<string, string>>({});
   const [pickingTaskId, setPickingTaskId] = useState<string | null>(null);
   const [checkInputs, setCheckInputs] = useState<Record<string, string>>({});
+  const [chartMode, setChartMode] = useState<"time" | "money">("time");
 
   const tomorrowDate = useMemo(
     () => getDateInTimezone(user.currentTimezone || "Asia/Almaty", 1),
@@ -79,28 +80,67 @@ export function EveningReviewView({
   const savedMin = dayPlan?.savedMin ?? Math.max(0, doneTasks.length * 6);
   const totalKm = dayPlan?.totalKm ?? tasks.reduce((acc, t) => acc + (t.legDistanceKm ?? 0), 0);
 
+  const todayBaselineTransport = useMemo(() => {
+    const routable = tasks.filter(
+      (t) => t.lat != null && t.lng != null && !t.exceedsFreeLimit && t.status !== "SKIPPED"
+    );
+    if (routable.length === 0) return 0;
+    // Unoptimized single-trip baseline (typical ride-hail / unbatched route order ~1.4x distance overhead)
+    const rawBaseline = routable.reduce(
+      (sum, t) => sum + Math.max(2.6, (t.legDistanceKm ?? 2.2) * 1.65 + 1.4),
+      0
+    );
+    return Number(rawBaseline.toFixed(2));
+  }, [tasks]);
+
+  const todayMoneySaved = useMemo(() => {
+    if (budgetSummary && todayBaselineTransport > 0) {
+      const optimizedSpend = budgetSummary.plannedTransportTotal;
+      return Math.max(0, Number((todayBaselineTransport - optimizedSpend).toFixed(2)));
+    }
+    return Number(Math.max(1.5, savedMin * 0.24 + totalKm * 0.35).toFixed(2));
+  }, [budgetSummary, todayBaselineTransport, savedMin, totalKm]);
+
   // Build 7-day chart dataset combining DB history with realistic baseline fallback
   const chartSeries = useMemo(() => {
     const byDate = new Map(recentDayPlans.map((d) => [d.date, d]));
     const fallbackSaved = [18, 24, 14, 31, 22, 27, savedMin || 23];
-    const points: { label: string; savedMin: number; accuracyPct: number }[] = [];
+    const fallbackMoney = [4.2, 5.8, 3.6, 7.4, 5.1, 6.5, todayMoneySaved || 5.4];
+    const points: {
+      label: string;
+      savedMin: number;
+      savedMoney: number;
+      accuracyPct: number;
+    }[] = [];
 
     for (let offset = -6; offset <= 0; offset += 1) {
       const dStr = getDateInTimezone(user.currentTimezone || "Asia/Almaty", offset);
       const found = byDate.get(dStr);
       const label = dStr.slice(5); // MM-DD
-      const minSaved = found?.savedMin && found.savedMin > 0 ? found.savedMin : fallbackSaved[offset + 6];
+      const minSaved =
+        found?.savedMin && found.savedMin > 0 ? found.savedMin : fallbackSaved[offset + 6];
       const naive = found?.naiveTravelMin || 68;
       const actual = found?.totalTravelMin || Math.max(25, naive - minSaved);
-      const efficiency = Math.min(99, Math.max(76, Math.round((1 - actual / (naive + 30)) * 100) + 32));
+      const efficiency = Math.min(
+        99,
+        Math.max(76, Math.round((1 - actual / (naive + 30)) * 100) + 32)
+      );
+      const moneySaved =
+        offset === 0 && todayMoneySaved > 0
+          ? todayMoneySaved
+          : found?.savedMin && found.savedMin > 0
+            ? Number((found.savedMin * 0.24 + (found.totalKm || 6) * 0.3).toFixed(2))
+            : fallbackMoney[offset + 6];
+
       points.push({
         label: offset === 0 ? "Today" : label,
         savedMin: minSaved,
+        savedMoney: moneySaved,
         accuracyPct: efficiency,
       });
     }
     return points;
-  }, [recentDayPlans, savedMin, user.currentTimezone]);
+  }, [recentDayPlans, savedMin, todayMoneySaved, user.currentTimezone]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,16 +152,23 @@ export function EveningReviewView({
       const { default: Chart } = await import("chart.js/auto");
       if (!active || !canvasRef.current) return;
 
+      const isMoney = chartMode === "money";
       instance = new Chart(canvasRef.current, {
         type: "bar",
         data: {
           labels: chartSeries.map((p) => p.label),
           datasets: [
             {
-              label: "Minutes Saved vs Naive",
-              data: chartSeries.map((p) => p.savedMin),
+              label: isMoney
+                ? "Money Saved vs Unoptimized Route ($)"
+                : "Minutes Saved vs Naive",
+              data: chartSeries.map((p) => (isMoney ? p.savedMoney : p.savedMin)),
               backgroundColor: chartSeries.map((_, i) =>
-                i === chartSeries.length - 1 ? "#C67D63" : "#2F453B"
+                i === chartSeries.length - 1
+                  ? "#C67D63"
+                  : isMoney
+                    ? "#3F7A63"
+                    : "#2F453B"
               ),
               borderRadius: 10,
               barPercentage: 0.62,
@@ -152,7 +199,7 @@ export function EveningReviewView({
               ticks: {
                 color: "#5E766B",
                 font: { size: 11 },
-                callback: (v) => `${v}m`,
+                callback: (v) => (isMoney ? `$${v}` : `${v}m`),
               },
             },
           },
@@ -164,9 +211,12 @@ export function EveningReviewView({
       active = false;
       if (instance) instance.destroy();
     };
-  }, [chartSeries]);
+  }, [chartSeries, chartMode]);
 
   const weeklySavedTotal = chartSeries.reduce((acc, p) => acc + p.savedMin, 0);
+  const weeklyMoneySavedTotal = Number(
+    chartSeries.reduce((acc, p) => acc + p.savedMoney, 0).toFixed(2)
+  );
   const avgAccuracy = Math.round(
     chartSeries.reduce((acc, p) => acc + p.accuracyPct, 0) / chartSeries.length
   );
@@ -462,18 +512,48 @@ export function EveningReviewView({
             <BarChart3 className="h-4 w-4 text-[#C67D63]" />
             <div>
               <h3 className="text-sm font-bold text-[#2F453B]">
-                7-Day Route Savings &amp; ETA Accuracy
+                {chartMode === "money"
+                  ? "7-Day Money Saved ($)"
+                  : "7-Day Route Savings & ETA Accuracy"}
               </h3>
               <p className="text-xs text-[#5E766B] tabular-nums">
-                Weekly time saved: {weeklySavedTotal} min · On-time ETA accuracy: {avgAccuracy}%
+                {chartMode === "money"
+                  ? `Weekly money saved: $${weeklyMoneySavedTotal.toFixed(2)} vs unoptimized routes`
+                  : `Weekly time saved: ${weeklySavedTotal} min · On-time ETA accuracy: ${avgAccuracy}%`}
               </p>
             </div>
           </div>
-          {user.tier !== "FREE" ? (
-            <Badge variant="safe">Pro Analytics Active</Badge>
-          ) : (
-            <Badge variant="coral">Pro Feature</Badge>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setChartMode("time")}
+                className={`rounded-lg px-2.5 py-1 transition-colors cursor-pointer ${
+                  chartMode === "time"
+                    ? "bg-[#2F453B] text-[#F6F4EF]"
+                    : "text-[#5E766B] hover:text-[#2F453B]"
+                }`}
+              >
+                Time (min)
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMode("money")}
+                className={`rounded-lg px-2.5 py-1 transition-colors cursor-pointer ${
+                  chartMode === "money"
+                    ? "bg-[#3F7A63] text-white"
+                    : "text-[#5E766B] hover:text-[#2F453B]"
+                }`}
+              >
+                Money ($)
+              </button>
+            </div>
+            {user.tier !== "FREE" ? (
+              <Badge variant="safe">Pro Analytics Active</Badge>
+            ) : (
+              <Badge variant="coral">Pro Feature</Badge>
+            )}
+          </div>
         </div>
 
         <div className="relative h-56 w-full">

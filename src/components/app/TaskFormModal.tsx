@@ -2,8 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { MapPin, Repeat, Sparkles, Users, Wallet, Zap } from "lucide-react";
-import { resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
+import { PlacePreset, resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
 import { estimateVenueBudget } from "@/lib/budget-intelligence";
+import { resolveAddressWithLiveFallback, searchLivePlaces } from "@/lib/geocode-client";
 import { parseQuickAddText } from "@/lib/quick-add-parser";
 import { PriceIntelEntry, TaskItem, TaskPriority } from "@/lib/types";
 import { parseTimeToMinutes } from "@/lib/utils";
@@ -136,6 +137,44 @@ export function TaskFormModal({
     initialPartySize,
     initialCustomPerPerson,
   ]);
+
+  const [livePlaceSuggestions, setLivePlaceSuggestions] = useState<PlacePreset[]>([]);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
+  const [manualPickedPlace, setManualPickedPlace] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setManualPickedPlace(Boolean(editingTask?.lat != null));
+  }, [isOpen, editingTask]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const q = locationQuery.trim();
+    if (q.length < 2) {
+      setLivePlaceSuggestions([]);
+      setSearchingPlaces(false);
+      return;
+    }
+    const controller = new AbortController();
+    setSearchingPlaces(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await searchLivePlaces(q, city, controller.signal);
+        setLivePlaceSuggestions(results);
+        if (!manualPickedPlace && results.length > 0) {
+          setAddress(results[0].address);
+          setLat(results[0].lat);
+          setLng(results[0].lng);
+        }
+      } finally {
+        setSearchingPlaces(false);
+      }
+    }, 220);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isOpen, locationQuery, city, manualPickedPlace]);
 
   const applyQuickPhrase = (phrase: string) => {
     if (!phrase.trim()) return;
@@ -439,10 +478,10 @@ export function TaskFormModal({
             value={locationQuery}
             onFocus={() => setShowPlaceDropdown(true)}
             onBlur={() => {
-              window.setTimeout(() => {
+              window.setTimeout(async () => {
                 setShowPlaceDropdown(false);
                 if (lat == null && locationQuery.trim()) {
-                  const resolved = resolvePlaceByWords(locationQuery, city);
+                  const resolved = await resolveAddressWithLiveFallback(locationQuery, city);
                   setAddress(resolved.address);
                   setLat(resolved.lat);
                   setLng(resolved.lng);
@@ -452,44 +491,57 @@ export function TaskFormModal({
             onChange={(e) => {
               const val = e.target.value;
               setLocationQuery(val);
+              setManualPickedPlace(false);
               setShowPlaceDropdown(true);
               if (val.trim().length > 0) {
-                const resolved = resolvePlaceByWords(val, city);
-                setAddress(resolved.address);
-                setLat(resolved.lat);
-                setLng(resolved.lng);
+                const localTop = searchPlacesLocal(val, city)[0];
+                if (localTop) {
+                  setAddress(localTop.address);
+                  setLat(localTop.lat);
+                  setLng(localTop.lng);
+                } else {
+                  setAddress(val.trim());
+                  setLat(null);
+                  setLng(null);
+                }
               } else {
                 setAddress("");
                 setLat(null);
                 setLng(null);
               }
             }}
-            placeholder={`Type address or place in ${city} (e.g. Dostyk 16, Аптека, Кофе, Кино...)`}
+            placeholder={`Type street & house in ${city} (e.g. Кабанбай Батыра 55, Dostyk 16...)`}
             className={inputClass}
           />
 
-          {showPlaceDropdown && locationQuery.trim().length > 0 && citySuggestions.length > 0 ? (
-            <div className="max-h-44 overflow-y-auto rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] divide-y divide-[#DFDBD0]/60">
-              {citySuggestions.map((p) => (
+          {showPlaceDropdown && locationQuery.trim().length > 0 && (livePlaceSuggestions.length > 0 || citySuggestions.length > 0 || searchingPlaces) ? (
+            <div className="max-h-48 overflow-y-auto rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] divide-y divide-[#DFDBD0]/60 shadow-sm">
+              {searchingPlaces && livePlaceSuggestions.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-[#5E766B]">
+                  Searching {city} addresses...
+                </div>
+              ) : null}
+              {(livePlaceSuggestions.length > 0 ? livePlaceSuggestions : citySuggestions).map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setLocationQuery(p.name);
+                    setLocationQuery(p.address && p.address !== p.name ? `${p.name} — ${p.address}` : p.name);
                     setAddress(p.address);
                     setLat(p.lat);
                     setLng(p.lng);
+                    setManualPickedPlace(true);
                     setErrorMsg(null);
                     setShowPlaceDropdown(false);
                   }}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-white cursor-pointer"
                 >
-                  <div>
-                    <div className="font-bold text-[#2F453B]">{p.name}</div>
-                    <div className="text-[11px] text-[#5E766B]">{p.address}</div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-[#2F453B] truncate">{p.name}</div>
+                    <div className="text-[11px] text-[#5E766B] truncate">{p.address}</div>
                   </div>
-                  <span className="rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-[#5E766B] border border-[#DFDBD0]">
+                  <span className="shrink-0 rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-[#5E766B] border border-[#DFDBD0]">
                     {p.category}
                   </span>
                 </button>
@@ -498,7 +550,7 @@ export function TaskFormModal({
           ) : null}
 
           <div className="flex flex-wrap gap-1.5">
-            {citySuggestions.map((p) => {
+            {(livePlaceSuggestions.length > 0 ? livePlaceSuggestions.slice(0, 5) : citySuggestions).map((p) => {
               const selected = lat === p.lat && lng === p.lng;
               return (
                 <button

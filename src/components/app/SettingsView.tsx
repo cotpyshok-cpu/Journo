@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Bell,
   Car,
@@ -14,7 +14,8 @@ import {
   TrainFront,
   Trash2,
 } from "lucide-react";
-import { resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
+import { PlacePreset, searchPlacesLocal } from "@/lib/astana-places";
+import { resolveAddressWithLiveFallback, searchLivePlaces } from "@/lib/geocode-client";
 import {
   SystemSimulationFlags,
   TransportCostProfile,
@@ -55,7 +56,16 @@ export function SettingsView({
   void _simFlags;
   void _onToggleSimFlag;
   const [homeAddress, setHomeAddress] = useState(user.homeAddress);
+  const [homeCoords, setHomeCoords] = useState<{ lat: number; lng: number } | null>({
+    lat: user.homeLat,
+    lng: user.homeLng,
+  });
   const [workAddress, setWorkAddress] = useState(user.workAddress ?? "");
+  const [workCoords, setWorkCoords] = useState<{ lat: number; lng: number } | null>(
+    user.workLat != null && user.workLng != null
+      ? { lat: user.workLat, lng: user.workLng }
+      : null
+  );
   const [delayThreshold, setDelayThreshold] = useState(user.delayThresholdMin);
   const [quietStart, setQuietStart] = useState(user.quietHoursStart);
   const [quietEnd, setQuietEnd] = useState(user.quietHoursEnd);
@@ -64,24 +74,70 @@ export function SettingsView({
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  const homeMatches = searchPlacesLocal(homeAddress, user.currentCity).slice(0, 4);
-  const workMatches = searchPlacesLocal(workAddress, user.currentCity).slice(0, 4);
+  const [liveHomeMatches, setLiveHomeMatches] = useState<PlacePreset[]>([]);
+  const [liveWorkMatches, setLiveWorkMatches] = useState<PlacePreset[]>([]);
+
+  useEffect(() => {
+    const q = homeAddress.trim();
+    if (q.length < 2) {
+      setLiveHomeMatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const res = await searchLivePlaces(q, user.currentCity, controller.signal);
+      setLiveHomeMatches(res.slice(0, 5));
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [homeAddress, user.currentCity]);
+
+  useEffect(() => {
+    const q = workAddress.trim();
+    if (q.length < 2) {
+      setLiveWorkMatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const res = await searchLivePlaces(q, user.currentCity, controller.signal);
+      setLiveWorkMatches(res.slice(0, 5));
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [workAddress, user.currentCity]);
+
+  const homeMatches =
+    liveHomeMatches.length > 0
+      ? liveHomeMatches
+      : searchPlacesLocal(homeAddress, user.currentCity).slice(0, 4);
+  const workMatches =
+    liveWorkMatches.length > 0
+      ? liveWorkMatches
+      : searchPlacesLocal(workAddress, user.currentCity).slice(0, 4);
 
   const handleSaveAddressesAndAlerts = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       const cleanHome = homeAddress.trim() || user.homeAddress;
-      const homePlace = resolvePlaceByWords(cleanHome, user.currentCity);
+      const resolvedHome =
+        homeCoords ?? (await resolveAddressWithLiveFallback(cleanHome, user.currentCity));
       const cleanWork = workAddress.trim();
-      const workPlace = cleanWork ? resolvePlaceByWords(cleanWork, user.currentCity) : null;
+      const resolvedWork = cleanWork
+        ? workCoords ?? (await resolveAddressWithLiveFallback(cleanWork, user.currentCity))
+        : null;
       await onSaveProfile({
         homeAddress: cleanHome,
-        homeLat: homePlace.lat,
-        homeLng: homePlace.lng,
+        homeLat: resolvedHome.lat,
+        homeLng: resolvedHome.lng,
         workAddress: cleanWork || null,
-        workLat: workPlace?.lat ?? null,
-        workLng: workPlace?.lng ?? null,
+        workLat: resolvedWork?.lat ?? null,
+        workLng: resolvedWork?.lng ?? null,
         delayThresholdMin: delayThreshold,
         quietHoursStart: quietStart,
         quietHoursEnd: quietEnd,
@@ -143,9 +199,10 @@ export function SettingsView({
           <div className="mb-1.5 text-xs font-semibold text-[#5E766B]">
             Preferred Ways to Travel
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {(
               [
+                { id: "CAR", label: "Personal Car", icon: Car },
                 { id: "BOTH", label: "Walk + Transit", icon: Footprints },
                 { id: "WALK", label: "Walk Only", icon: Footprints },
                 { id: "TRANSIT", label: "Transit Only", icon: TrainFront },
@@ -157,7 +214,12 @@ export function SettingsView({
                 <button
                   key={opt.id}
                   type="button"
-                  onClick={() => onSaveProfile({ transportModes: opt.id })}
+                  onClick={() => {
+                    onSaveProfile({ transportModes: opt.id });
+                    if (opt.id === "CAR" && transportProfile && !transportProfile.hasPersonalCar && onUpdateTransportProfile) {
+                      onUpdateTransportProfile({ ...transportProfile, hasPersonalCar: true });
+                    }
+                  }}
                   className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-2xl border px-3 text-xs font-semibold transition-colors ${
                     active
                       ? "border-[#C67D63] bg-[#F4E8E3] text-[#2F453B]"
@@ -188,12 +250,15 @@ export function SettingsView({
               </div>
               <Switch
                 checked={transportProfile.hasPersonalCar === false}
-                onCheckedChange={(checked) =>
+                onCheckedChange={(checked) => {
                   onUpdateTransportProfile({
                     ...transportProfile,
                     hasPersonalCar: !checked,
-                  })
-                }
+                  });
+                  if (checked && user.transportModes === "CAR") {
+                    void onSaveProfile({ transportModes: "BOTH" });
+                  }
+                }}
                 label="No personal car"
               />
             </div>
@@ -241,19 +306,31 @@ export function SettingsView({
                 type="text"
                 className={inputClass}
                 value={homeAddress}
-                onChange={(e) => setHomeAddress(e.target.value)}
-                placeholder="Type street or place name..."
+                onChange={(e) => {
+                  setHomeAddress(e.target.value);
+                  setHomeCoords(null);
+                }}
+                placeholder="Type street & house (e.g. Кабанбай Батыра 55)..."
               />
               {homeMatches.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
+                <div className="max-h-36 overflow-y-auto rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] divide-y divide-[#DFDBD0]/60">
                   {homeMatches.map((p) => (
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setHomeAddress(`${p.name}, ${p.address}`)}
-                      className="rounded-lg border border-[#DFDBD0] bg-[#F6F4EF] px-2 py-1 text-[11px] font-medium text-[#2F453B] hover:bg-[#ECE9E1] cursor-pointer"
+                      onClick={() => {
+                        setHomeAddress(p.address || `${p.name}, ${user.currentCity}`);
+                        setHomeCoords({ lat: p.lat, lng: p.lng });
+                      }}
+                      className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-white cursor-pointer"
                     >
-                      {p.name}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[#2F453B] truncate">{p.name}</div>
+                        <div className="text-[11px] text-[#5E766B] truncate">{p.address}</div>
+                      </div>
+                      <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#5E766B] border border-[#DFDBD0]">
+                        {p.category}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -267,19 +344,31 @@ export function SettingsView({
                 type="text"
                 className={inputClass}
                 value={workAddress}
-                onChange={(e) => setWorkAddress(e.target.value)}
-                placeholder="Type office or place name..."
+                onChange={(e) => {
+                  setWorkAddress(e.target.value);
+                  setWorkCoords(null);
+                }}
+                placeholder="Type office street & house..."
               />
               {workMatches.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
+                <div className="max-h-36 overflow-y-auto rounded-xl border border-[#DFDBD0] bg-[#F6F4EF] divide-y divide-[#DFDBD0]/60">
                   {workMatches.map((p) => (
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setWorkAddress(`${p.name}, ${p.address}`)}
-                      className="rounded-lg border border-[#DFDBD0] bg-[#F6F4EF] px-2 py-1 text-[11px] font-medium text-[#2F453B] hover:bg-[#ECE9E1] cursor-pointer"
+                      onClick={() => {
+                        setWorkAddress(p.address || `${p.name}, ${user.currentCity}`);
+                        setWorkCoords({ lat: p.lat, lng: p.lng });
+                      }}
+                      className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-white cursor-pointer"
                     >
-                      {p.name}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[#2F453B] truncate">{p.name}</div>
+                        <div className="text-[11px] text-[#5E766B] truncate">{p.address}</div>
+                      </div>
+                      <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#5E766B] border border-[#DFDBD0]">
+                        {p.category}
+                      </span>
                     </button>
                   ))}
                 </div>

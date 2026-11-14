@@ -11,8 +11,9 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import { resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
+import { PlacePreset, resolvePlaceByWords, searchPlacesLocal } from "@/lib/astana-places";
 import { estimateVenueBudget } from "@/lib/budget-intelligence";
+import { resolveAddressWithLiveFallback, searchLivePlaces } from "@/lib/geocode-client";
 import { parseQuickAddText } from "@/lib/quick-add-parser";
 import { PriceIntelEntry, UserTier } from "@/lib/types";
 import { Button, Modal, inputClass } from "@/components/ui/primitives";
@@ -66,6 +67,8 @@ export function QuickAddModal({
   const [candidates, setCandidates] = useState<QuickAddPlaceCandidate[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [customPlaceQuery, setCustomPlaceQuery] = useState("");
+  const [pickedCustomPlace, setPickedCustomPlace] = useState<PlacePreset | null>(null);
+  const [livePlaceMatches, setLivePlaceMatches] = useState<PlacePreset[]>([]);
   const [placeManuallyLocked, setPlaceManuallyLocked] = useState(false);
   const [showPlaceDropdown, setShowPlaceDropdown] = useState(false);
   const [loadingParse, setLoadingParse] = useState(false);
@@ -119,9 +122,30 @@ export function QuickAddModal({
     };
   }, [isOpen, preservedText, date, placeManuallyLocked]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const q = customPlaceQuery.trim();
+    if (q.length < 2) {
+      setLivePlaceMatches([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const results = await searchLivePlaces(q, city, controller.signal);
+      setLivePlaceMatches(results);
+    }, 220);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isOpen, customPlaceQuery, city]);
+
   const wordMatches = useMemo(
-    () => searchPlacesLocal(customPlaceQuery, city),
-    [customPlaceQuery, city]
+    () =>
+      livePlaceMatches.length > 0
+        ? livePlaceMatches
+        : searchPlacesLocal(customPlaceQuery, city),
+    [livePlaceMatches, customPlaceQuery, city]
   );
 
   const selectedCandidate = useMemo<QuickAddPlaceCandidate | null>(() => {
@@ -129,8 +153,22 @@ export function QuickAddModal({
       const fromDetour = candidates.find((c) => c.id === selectedPlaceId);
       if (fromDetour) return fromDetour;
     }
+    if (placeManuallyLocked && pickedCustomPlace) {
+      return {
+        id: pickedCustomPlace.id,
+        name: pickedCustomPlace.name,
+        address: pickedCustomPlace.address,
+        category: pickedCustomPlace.category,
+        city: pickedCustomPlace.city,
+        lat: pickedCustomPlace.lat,
+        lng: pickedCustomPlace.lng,
+        detourMin: 6,
+        distanceKm: 1.8,
+      };
+    }
     if (placeManuallyLocked && customPlaceQuery.trim()) {
-      const resolved = resolvePlaceByWords(customPlaceQuery.trim(), city);
+      const topLive = livePlaceMatches[0];
+      const resolved = topLive ?? resolvePlaceByWords(customPlaceQuery.trim(), city);
       return {
         id: resolved.id,
         name: resolved.name,
@@ -144,7 +182,7 @@ export function QuickAddModal({
       };
     }
     return candidates[0] ?? null;
-  }, [selectedPlaceId, candidates, placeManuallyLocked, customPlaceQuery, city]);
+  }, [selectedPlaceId, candidates, placeManuallyLocked, pickedCustomPlace, customPlaceQuery, livePlaceMatches, city]);
 
   const localBudgetEst = estimateVenueBudget({
     locationName: selectedCandidate?.name ?? (customPlaceQuery.trim() || null),
@@ -162,7 +200,22 @@ export function QuickAddModal({
     setErrorMsg(null);
     setSubmitting(true);
     try {
-      await onCommitQuickAdd(preservedText.trim(), selectedCandidate);
+      let finalCandidate = selectedCandidate;
+      if (placeManuallyLocked && !pickedCustomPlace && customPlaceQuery.trim()) {
+        const resolved = await resolveAddressWithLiveFallback(customPlaceQuery.trim(), city);
+        finalCandidate = {
+          id: `live-${Date.now()}`,
+          name: resolved.name,
+          address: resolved.address,
+          category: "Address",
+          city,
+          lat: resolved.lat,
+          lng: resolved.lng,
+          detourMin: 6,
+          distanceKm: 1.8,
+        };
+      }
+      await onCommitQuickAdd(preservedText.trim(), finalCandidate);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Could not add quick stop.");
     } finally {
@@ -248,6 +301,7 @@ export function QuickAddModal({
             onChange={(e) => {
               const val = e.target.value;
               setCustomPlaceQuery(val);
+              setPickedCustomPlace(null);
               setShowPlaceDropdown(true);
               if (val.trim().length > 0) {
                 setPlaceManuallyLocked(true);
@@ -260,7 +314,7 @@ export function QuickAddModal({
             placeholder={
               selectedCandidate
                 ? `Auto: ${selectedCandidate.name} (type to change address)`
-                : `Type place or street in ${city}...`
+                : `Type street & house in ${city} (e.g. Кабанбай Батыра 55)...`
             }
           />
           {showPlaceDropdown && customPlaceQuery.trim().length > 0 && (
@@ -271,7 +325,8 @@ export function QuickAddModal({
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setCustomPlaceQuery(p.name);
+                    setCustomPlaceQuery(p.address && p.address !== p.name ? `${p.name} — ${p.address}` : p.name);
+                    setPickedCustomPlace(p);
                     setPlaceManuallyLocked(true);
                     setSelectedPlaceId(null);
                     setShowPlaceDropdown(false);

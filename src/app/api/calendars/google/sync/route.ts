@@ -83,16 +83,31 @@ export async function POST(req: NextRequest) {
     }
 
     if (input.action === "token_sync" && input.accessToken) {
+      let resolvedEmail: string | null = null;
+      try {
+        const userinfoRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+          headers: { Authorization: `Bearer ${input.accessToken}` },
+          signal: AbortSignal.timeout(2000),
+        });
+        if (userinfoRes.ok) {
+          const ui = (await userinfoRes.json()) as { email?: string };
+          if (ui.email) resolvedEmail = ui.email;
+        }
+      } catch {
+        // Fallback below if userinfo lookup fails
+      }
+
       const conn = await prisma.calendarConnection.upsert({
         where: { userId_provider: { userId: user.id, provider: "GOOGLE" } },
         update: {
           accessToken: input.accessToken,
           status: "CONNECTED",
+          ...(resolvedEmail ? { accountEmail: resolvedEmail } : {}),
         },
         create: {
           userId: user.id,
           provider: "GOOGLE",
-          accountEmail: "google-calendar-user@gmail.com",
+          accountEmail: resolvedEmail || "google-account@gmail.com",
           status: "CONNECTED",
           accessToken: input.accessToken,
         },
@@ -142,18 +157,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // sandbox_sync: inserts realistic Astana Google Calendar events for jury testing without OAuth keys
+    // sandbox_sync: inserts realistic Astana Google Calendar meetings without OAuth keys
     const conn = await prisma.calendarConnection.upsert({
       where: { userId_provider: { userId: user.id, provider: "GOOGLE" } },
       update: {
         status: "CONNECTED",
-        accountEmail: "jury.demo@gmail.com",
+        accountEmail: "amina.demo@gmail.com",
         lastSyncedAt: new Date(),
       },
       create: {
         userId: user.id,
         provider: "GOOGLE",
-        accountEmail: "jury.demo@gmail.com",
+        accountEmail: "amina.demo@gmail.com",
         status: "CONNECTED",
         lastSyncedAt: new Date(),
       },
