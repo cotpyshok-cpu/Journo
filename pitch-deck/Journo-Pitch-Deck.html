@@ -560,6 +560,175 @@
       text-transform: uppercase;
     }
 
+    /* Risk Matrix + Solutions Layout */
+    .risk-layout {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 2.2%;
+      flex: 1;
+      align-items: stretch;
+      margin: 0.8% 0;
+    }
+
+    .matrix-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 2.4% 2.8%;
+    }
+
+    .matrix-area {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      grid-template-rows: 1fr auto;
+      gap: 8px 10px;
+      flex: 1;
+      align-items: stretch;
+    }
+
+    .axis-y-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .axis-title-y {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--terracotta);
+    }
+
+    .axis-ticks-y {
+      display: grid;
+      grid-template-rows: repeat(3, 1fr);
+      height: 100%;
+      align-items: center;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .matrix-cell {
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 5px;
+    }
+
+    .cell-low {
+      background: rgba(111, 211, 164, 0.12);
+    }
+
+    .cell-med {
+      background: rgba(224, 138, 60, 0.18);
+    }
+
+    .cell-high {
+      background: rgba(216, 110, 69, 0.30);
+      border-color: rgba(216, 110, 69, 0.52);
+    }
+
+    .risk-marker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--terracotta);
+      color: #fff;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      border: 2px solid rgba(255, 255, 255, 0.78);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    .risk-marker-label {
+      font-size: clamp(11px, 1.05vw, 13.5px);
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.2;
+    }
+
+    .axis-x-wrap {
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .axis-ticks-x {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .axis-title-x {
+      text-align: center;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--terracotta);
+    }
+
+    .solutions-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .sol-card {
+      flex: 1;
+      border: 1px solid var(--border-crisp);
+      background: var(--glass-sage);
+      border-radius: 16px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .sol-num {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--terracotta);
+      color: #fff;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1.5px solid rgba(255, 255, 255, 0.65);
+    }
+
     /* Navigation Bar */
     .nav-bar {
       position: fixed;
@@ -761,7 +930,7 @@
 
           <div class="slide-foot">
             <span>Track: Money · Sources: BLS 2024, Gridwise 2025, US Census ACS</span>
-            <span>Slide 2 / 10</span>
+            <span>Slide 2 / 9</span>
           </div>
         </div>
       </section>
@@ -819,7 +988,7 @@
 
           <div class="slide-foot">
             <span>Problem: Poor Time + Route Planning Directly Drains Monthly Cash</span>
-            <span>Slide 3 / 10</span>
+            <span>Slide 3 / 9</span>
           </div>
         </div>
       </section>
@@ -904,7 +1073,7 @@
 
           <div class="slide-foot">
             <span>Why Switching Wins: Single Tool Replacing Map Re-Entry + Static Calendars + Post-Facto Budgets</span>
-            <span>Slide 4 / 10</span>
+            <span>Slide 4 / 9</span>
           </div>
         </div>
       </section>
@@ -960,7 +1129,7 @@
 
           <div class="slide-foot">
             <span>Zero Registration Required · Desktop &amp; Mobile Web · Interactive Leaflet + OSRM Routing</span>
-            <span>Slide 5 / 10</span>
+            <span>Slide 5 / 9</span>
           </div>
         </div>
       </section>
@@ -1022,88 +1191,13 @@
 
           <div class="slide-foot">
             <span>High D1→D30 Retention · Visible Savings Every Night Reinforce Tomorrow's Open</span>
-            <span>Slide 6 / 10</span>
+            <span>Slide 6 / 9</span>
           </div>
         </div>
       </section>
 
-      <!-- SLIDE 7: REAL ENGINEERING & VERIFIED QUALITY -->
+      <!-- SLIDE 7: BUSINESS POTENTIAL & PROFIT ($100M ARR) -->
       <section class="slide" data-slide="7">
-        <div class="slide-inner">
-          <div class="slide-header">
-            <div class="criteria-pill">
-              <span class="dot"></span>
-              <span>Product &amp; Engineering (40%) · Real Production Code</span>
-            </div>
-            <h2 class="slide-kicker">BUILT FOR RELIABILITY</h2>
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 18px; flex: 1; justify-content: center;">
-            <div class="arch-flow">
-              <div class="arch-node">
-                <span class="arch-step">1. INPUT</span>
-                <strong style="font-size: 18px;">NLP + Calendars</strong>
-                <p class="body-muted">
-                  Typed tasks, Google OAuth sync, Apple <code>.ics</code> &amp; recurring series.
-                </p>
-              </div>
-              <div class="arch-node">
-                <span class="arch-step">2. SOLVER</span>
-                <strong style="font-size: 18px;">TSPTW Engine</strong>
-                <p class="body-muted">
-                  Respects hard windows, detects conflicts &amp; auto-optimizes safely.
-                </p>
-              </div>
-              <div class="arch-node">
-                <span class="arch-step">3. MONEY</span>
-                <strong style="font-size: 18px;">OSRM + Cost Engine</strong>
-                <p class="body-muted">
-                  Live street routes, MPG/kWh fuel, transit caps &amp; Taxi/Car comparison.
-                </p>
-              </div>
-              <div class="arch-node">
-                <span class="arch-step">4. STACK</span>
-                <strong style="font-size: 18px;">Next.js + Prisma</strong>
-                <p class="body-muted">
-                  Strict TypeScript PWA deployed on Vercel — instant open, no cold login gate.
-                </p>
-              </div>
-            </div>
-
-            <div class="grid-3" style="margin: 0; flex: 0.72;">
-              <div class="terra-card card-pad">
-                <div class="kpi-num">22 / 22</div>
-                <div class="card-label" style="font-size: 16px;">Unit Tests Passing</div>
-                <p class="body-muted" style="color: #fff;">
-                  Vitest verifies solver, fixed guards, Taxi conflict fixes &amp; live savings.
-                </p>
-              </div>
-              <div class="glass-card card-pad">
-                <div class="kpi-num">4 / 4</div>
-                <div class="card-label" style="font-size: 16px;">E2E Flows Green</div>
-                <p class="body-muted">
-                  Playwright verifies desktop &amp; mobile flows against production builds.
-                </p>
-              </div>
-              <div class="glass-card card-pad">
-                <div class="kpi-num">Zero</div>
-                <div class="card-label" style="font-size: 16px;">Hardcoded Fakes</div>
-                <p class="body-muted">
-                  Real solver, real geocoding, real database persistence &amp; public GitHub repo.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div class="slide-foot">
-            <span>Public Repo: github.com/cotpyshok-cpu/Journo · TypeScript Clean Build</span>
-            <span>Slide 7 / 10</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- SLIDE 8: BUSINESS POTENTIAL & PROFIT ($100M ARR) -->
-      <section class="slide" data-slide="8">
         <div class="slide-inner">
           <div class="slide-header">
             <div class="criteria-pill">
@@ -1162,69 +1256,140 @@
 
           <div class="slide-foot">
             <span>TAM $5.9B (76M BLS Workers) · Blended ARPU $6.50/mo ($8/mo &amp; $70/yr) · Realistic 9% Free→Pro</span>
-            <span>Slide 8 / 10</span>
+            <span>Slide 7 / 9</span>
           </div>
         </div>
       </section>
 
-      <!-- SLIDE 9: RISKS & SOLUTIONS -->
-      <section class="slide" data-slide="9">
+      <!-- SLIDE 8: RISK MATRIX & SOLUTIONS -->
+      <section class="slide" data-slide="8">
         <div class="slide-inner">
           <div class="slide-header">
             <div class="criteria-pill">
               <span class="dot"></span>
-              <span>Execution Readiness</span>
+              <span>Risk Matrix &amp; Built-In Mitigations</span>
             </div>
             <h2 class="slide-kicker">RISKS &amp; SOLUTIONS</h2>
           </div>
 
-          <div class="grid-2x2">
-            <div class="glass-card card-pad">
-              <span class="risk-badge">Risk 1 · Map API Costs</span>
-              <div class="card-label" style="font-size: clamp(15px, 1.4vw, 20px);">Google Maps Matrix Bills Eating Margin</div>
-              <span class="mitigation-pill">Built-In Fix</span>
-              <p class="body-text">
-                Multi-provider failover (OSRM + deterministic local city cache) cuts routing API spend by 80%+ while maintaining offline resilience.
-              </p>
+          <div class="risk-layout">
+            <!-- Left: 3x3 Risk Matrix (Probability vs Threat Level) -->
+            <div class="glass-card matrix-shell">
+              <div class="card-label" style="font-size: clamp(14px, 1.4vw, 19px);">
+                Probability × Threat Level Matrix
+              </div>
+
+              <div class="matrix-area">
+                <div class="axis-y-wrap">
+                  <div class="axis-title-y">Probability</div>
+                  <div class="axis-ticks-y">
+                    <span>High</span>
+                    <span>Med</span>
+                    <span>Low</span>
+                  </div>
+                </div>
+
+                <div class="matrix-grid">
+                  <!-- Row 1: High Probability -->
+                  <div class="matrix-cell cell-med"></div>
+                  <div class="matrix-cell cell-med">
+                    <span class="risk-marker">3</span>
+                    <span class="risk-marker-label">Price Drift</span>
+                  </div>
+                  <div class="matrix-cell cell-high">
+                    <span class="risk-marker">1</span>
+                    <span class="risk-marker-label">Setup Churn</span>
+                  </div>
+
+                  <!-- Row 2: Medium Probability -->
+                  <div class="matrix-cell cell-low"></div>
+                  <div class="matrix-cell cell-med"></div>
+                  <div class="matrix-cell cell-high">
+                    <span class="risk-marker">2</span>
+                    <span class="risk-marker-label">Map API Cost</span>
+                  </div>
+
+                  <!-- Row 3: Low Probability -->
+                  <div class="matrix-cell cell-low"></div>
+                  <div class="matrix-cell cell-med">
+                    <span class="risk-marker">4</span>
+                    <span class="risk-marker-label">Big Tech Copy</span>
+                  </div>
+                  <div class="matrix-cell cell-med"></div>
+                </div>
+
+                <div class="axis-x-wrap">
+                  <div class="axis-ticks-x">
+                    <span>Low</span>
+                    <span>Medium</span>
+                    <span>High</span>
+                  </div>
+                  <div class="axis-title-x">Threat Level (Business Impact) →</div>
+                </div>
+              </div>
             </div>
 
-            <div class="glass-card card-pad">
-              <span class="risk-badge">Risk 2 · Big Tech Copying</span>
-              <div class="card-label" style="font-size: clamp(15px, 1.4vw, 20px);">What if Google Maps Adds Multi-Stop?</div>
-              <span class="mitigation-pill">Defensible Wedge</span>
-              <p class="body-text">
-                Google monetizes ads and rides, not saving users money. Our moat is cross-layer lock-in: <strong>Calendar × Car/Taxi Cost × Receipt History</strong>.
-              </p>
-            </div>
+            <!-- Right: Numbered Solutions 1..4 -->
+            <div class="solutions-col">
+              <div class="sol-card">
+                <span class="sol-num">1</span>
+                <div>
+                  <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
+                    Setup Friction &amp; Early Churn
+                  </div>
+                  <p class="body-muted">
+                    <strong>Solution:</strong> Zero sign-up entry, NLP Quick Add &amp; <strong>1-Click Optimize</strong> (only asks critical conflicts).
+                  </p>
+                </div>
+              </div>
 
-            <div class="glass-card card-pad">
-              <span class="risk-badge">Risk 3 · Planning Friction</span>
-              <div class="card-label" style="font-size: clamp(15px, 1.4vw, 20px);">Users Quit Heavy Setup Forms</div>
-              <span class="mitigation-pill">Already Solved</span>
-              <p class="body-text">
-                Instant guest entry + NLP Quick Add + our <strong>1-Click Optimize</strong> button remove manual tweaking and only ask critical conflicts.
-              </p>
-            </div>
+              <div class="sol-card">
+                <span class="sol-num">2</span>
+                <div>
+                  <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
+                    Google Maps API Cost Scaling
+                  </div>
+                  <p class="body-muted">
+                    <strong>Solution:</strong> Multi-provider OSRM + local matrix cache cuts routing API spend by <strong>80%+</strong>.
+                  </p>
+                </div>
+              </div>
 
-            <div class="glass-card card-pad">
-              <span class="risk-badge">Risk 4 · Cost Accuracy</span>
-              <div class="card-label" style="font-size: clamp(15px, 1.4vw, 20px);">Generic Forecasts Feel Fake</div>
-              <span class="mitigation-pill">Self-Learning Data</span>
-              <p class="body-text">
-                Users log actual fuel/ride checks once at night; <strong>Personal Price Intelligence</strong> calibrates estimates to their real local venues.
-              </p>
+              <div class="sol-card">
+                <span class="sol-num">3</span>
+                <div>
+                  <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
+                    Generic Cost Estimates Drifting
+                  </div>
+                  <p class="body-muted">
+                    <strong>Solution:</strong> Nightly receipt checks train <strong>Personal Price Intelligence</strong> per user venue.
+                  </p>
+                </div>
+              </div>
+
+              <div class="sol-card">
+                <span class="sol-num">4</span>
+                <div>
+                  <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
+                    Big Tech Adding Multi-Stop
+                  </div>
+                  <p class="body-muted">
+                    <strong>Solution:</strong> Cross-layer lock-in (<strong>Calendar × 5-Mode Cost × Receipts</strong>); ad maps won’t undercut rides.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
           <div class="slide-foot">
-            <span>Practical Architecture: Cost-Protected Infrastructure &amp; Low-Friction Adoption</span>
-            <span>Slide 9 / 10</span>
+            <span>Every High-Impact Risk Addressed Directly in Product &amp; Infrastructure</span>
+            <span>Slide 8 / 9</span>
           </div>
         </div>
       </section>
 
-      <!-- SLIDE 10: WHAT NEXT & TRY IT LIVE -->
-      <section class="slide" data-slide="10">
+      <!-- SLIDE 9: WHAT NEXT & TRY IT LIVE -->
+      <section class="slide" data-slide="9">
         <div class="slide-inner">
           <div class="top-pill-bar">
             <span class="bar-item">Track: Money</span>
@@ -1292,7 +1457,7 @@
   <!-- Navigation Controls -->
   <div class="nav-bar" role="navigation" aria-label="Slide controls">
     <button type="button" class="nav-btn" id="prevBtn">← Prev</button>
-    <span class="nav-counter" id="counter">1 / 10</span>
+    <span class="nav-counter" id="counter">1 / 9</span>
     <button type="button" class="nav-btn" id="nextBtn">Next →</button>
     <button type="button" class="nav-btn" id="printBtn" title="Export 16:9 PDF">Print / PDF</button>
   </div>
