@@ -26,10 +26,12 @@ import {
 import { PLACE_PRESETS } from "@/lib/astana-places";
 import { MultiModalLegBreakdown } from "@/lib/budget-intelligence";
 import {
+  ConflictResolutionOption,
   DailyBudgetSummary,
   DayPlanItem,
   LegEstimate,
   RouteConflict,
+  ShiftedTaskNotice,
   TaskBudgetRecord,
   TaskItem,
   TransportCostProfile,
@@ -55,6 +57,9 @@ interface MorningPlanViewProps {
   onUpdateTaskPartySize?: (taskId: string, partySize: number) => void;
   onUpdateFriendRide?: (taskId: string, note: string, cost: number | null) => void;
   conflict: RouteConflict | null;
+  planAdjustments?: ShiftedTaskNotice[];
+  onDismissAdjustment?: (taskId: string) => void;
+  onRejectAdjustment?: (adj: ShiftedTaskNotice) => void;
   freeLimitCount: number;
   freeLimitMax: number;
   building: boolean;
@@ -69,7 +74,7 @@ interface MorningPlanViewProps {
   onStartDay: () => void;
   onSelectLegMode: (taskId: string, mode: TravelMode | "RESTORE_FASTEST") => void;
   onMoveTaskOrder: (taskId: string, direction: "UP" | "DOWN") => void;
-  onResolveConflict: (optionId: "REMOVE_FLEXIBLE" | "SHIFT_WINDOW" | "ENABLE_BOTH_MODES", targetTaskId?: string) => void;
+  onResolveConflict: (optionId: ConflictResolutionOption["id"], targetTaskId?: string) => void;
   onTestConflict: () => void;
   onOpenPaywall: (reason: string) => void;
   onOpenCalendars: () => void;
@@ -91,6 +96,9 @@ export function MorningPlanView({
   onUpdateTaskPartySize,
   onUpdateFriendRide,
   conflict,
+  planAdjustments = [],
+  onDismissAdjustment,
+  onRejectAdjustment,
   freeLimitCount,
   freeLimitMax,
   building,
@@ -314,15 +322,86 @@ export function MorningPlanView({
         </div>
       ) : null}
 
+      {/* Automatic Plan Adjustment Notice (User can accept or reject shifted time) */}
+      {planAdjustments.length > 0 ? (
+        <Card className="border-[#E08A3C]/50 bg-[#FEF6EE] p-4 space-y-2.5">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="h-5 w-5 text-[#E08A3C] shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="flex-1">
+              <h2 className="font-display text-sm font-bold text-[#2F453B]">
+                Schedule Adjusted Automatically
+              </h2>
+              <p className="text-xs text-[#5E766B] mt-0.5">
+                Journo moved {planAdjustments.length === 1 ? "a flexible task" : "flexible tasks"} into
+                an open slot around your busier commitments. Keep the updated time or decline to lock
+                the original window.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {planAdjustments.map((adj) => (
+              <div
+                key={adj.taskId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#DFDBD0] bg-white px-3.5 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#2F453B]">
+                    {adj.title}{" "}
+                    <span className="font-mono text-xs text-[#C67D63]">
+                      {adj.oldEta ?? "Original"} → {adj.newEta ?? "New"}
+                    </span>
+                  </p>
+                  {adj.reason ? (
+                    <p className="text-xs text-[#5E766B] mt-0.5">{adj.reason}</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {onRejectAdjustment ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={building || offline}
+                      onClick={() => onRejectAdjustment(adj)}
+                    >
+                      Decline · Keep {adj.oldEta ?? "Original"}
+                    </Button>
+                  ) : null}
+                  {onDismissAdjustment ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={building}
+                      onClick={() => onDismissAdjustment(adj.taskId)}
+                    >
+                      Keep {adj.newEta ?? "New Time"}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       {/* S10: Plan Conflict Resolution Panel (E6.1) */}
       {conflict ? (
         <Card className="border-[#B05454] bg-[#F5E6E6]/50 p-4 space-y-3">
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-[#B05454] shrink-0 mt-0.5" aria-hidden="true" />
             <div>
-              <h2 className="font-display text-base font-bold text-[#B05454]">
-                Schedule Conflict Detected
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-base font-bold text-[#B05454]">
+                  Schedule Conflict Detected
+                </h2>
+                {conflict.recommendedMode ? (
+                  <Badge variant="warn">
+                    {conflict.recommendedMode === "TAXI"
+                      ? "Taxi Recommended to Make Fixed Time"
+                      : "Car Recommended to Make Fixed Time"}
+                  </Badge>
+                ) : null}
+              </div>
               <p className="text-sm text-[#2F453B] mt-1">{conflict.reason}</p>
               <p className="text-xs text-[#5E766B] mt-1">
                 Affected tasks: <strong>{conflict.affectedTitles.join(", ")}</strong>. Your schedule is
@@ -332,20 +411,28 @@ export function MorningPlanView({
           </div>
 
           <div className="grid gap-2">
-            {conflict.options.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => onResolveConflict(opt.id, opt.targetTaskId)}
-                className="flex items-center justify-between gap-3 rounded-xl border border-[#DFDBD0] bg-white px-3.5 py-2.5 text-left hover:border-[#C67D63] transition-colors cursor-pointer min-h-[44px]"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-[#2F453B]">{opt.label}</p>
-                  <p className="text-xs text-[#5E766B]">{opt.description}</p>
-                </div>
-                <span className="text-xs font-bold text-[#C67D63] whitespace-nowrap">Apply →</span>
-              </button>
-            ))}
+            {conflict.options.map((opt) => {
+              const isFastModeOption =
+                opt.id === "SWITCH_TO_TAXI" || opt.id === "SWITCH_TO_CAR";
+              return (
+                <button
+                  key={`${opt.id}-${opt.targetTaskId ?? "all"}`}
+                  type="button"
+                  onClick={() => onResolveConflict(opt.id, opt.targetTaskId)}
+                  className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors cursor-pointer min-h-[44px] ${
+                    isFastModeOption
+                      ? "border-[#2F453B] bg-[#EEF5F1] hover:border-[#C67D63]"
+                      : "border-[#DFDBD0] bg-white hover:border-[#C67D63]"
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-[#2F453B]">{opt.label}</p>
+                    <p className="text-xs text-[#5E766B]">{opt.description}</p>
+                  </div>
+                  <span className="text-xs font-bold text-[#C67D63] whitespace-nowrap">Apply →</span>
+                </button>
+              );
+            })}
           </div>
         </Card>
       ) : null}

@@ -24,12 +24,14 @@ import {
 import {
   CalendarConnectionItem,
   CalendarEventItem,
+  ConflictResolutionOption,
   DayPlanItem,
   InAppNotification,
   LegEstimate,
   PriceIntelEntry,
   RouteConflict,
   ScreenId,
+  ShiftedTaskNotice,
   SystemSimulationFlags,
   TaskBudgetRecord,
   TaskItem,
@@ -52,7 +54,7 @@ import {
   saveLocalTaskBudgets,
   saveLocalTransportProfile,
 } from "@/lib/budget-intelligence";
-import { getDateInTimezone } from "@/lib/utils";
+import { formatMinutesToTime, getDateInTimezone, parseTimeToMinutes } from "@/lib/utils";
 import { JournoLogo } from "@/components/brand/JournoLogo";
 import { DynamicJournoMap } from "@/components/map/DynamicJournoMap";
 import { Button, Card } from "@/components/ui/primitives";
@@ -162,6 +164,7 @@ export function JournoApp() {
 
   const [legs, setLegs] = useState<LegEstimate[]>([]);
   const [conflict, setConflict] = useState<RouteConflict | null>(null);
+  const [planAdjustments, setPlanAdjustments] = useState<ShiftedTaskNotice[]>([]);
   const [building, setBuilding] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
@@ -532,6 +535,7 @@ export function JournoApp() {
 
       if (!json.ok && json.conflict) {
         setConflict(json.conflict);
+        setPlanAdjustments([]);
         setCurrentScreen("S10");
         await loadBootstrap(data.date);
         pushToast("Schedule conflict detected — choose a recovery option.", "Conflict", "DELAY_RISK");
@@ -539,13 +543,17 @@ export function JournoApp() {
       }
 
       setConflict(null);
+      setPlanAdjustments(json.result?.shiftedTasks ?? []);
       if (json.result?.legs) setLegs(json.result.legs);
       setCurrentScreen("S09");
       await loadBootstrap(data.date);
+      const shiftedCount = (json.result?.shiftedTasks ?? []).length;
       pushToast(
-        json.result?.isEstimateWithoutTraffic
-          ? "Route built from local distance cache."
-          : `Route optimized! Saved ${json.result?.savedMin ?? 0} min.`
+        shiftedCount > 0
+          ? `Route rebuilt — ${shiftedCount} task${shiftedCount > 1 ? "s" : ""} shifted around busy commitments.`
+          : json.result?.isEstimateWithoutTraffic
+            ? "Route built from local distance cache."
+            : `Route optimized! Saved ${json.result?.savedMin ?? 0} min.`
       );
     } finally {
       setBuilding(false);
@@ -553,7 +561,7 @@ export function JournoApp() {
   };
 
   const handleResolveConflict = async (
-    optionId: "REMOVE_FLEXIBLE" | "SHIFT_WINDOW" | "ENABLE_BOTH_MODES",
+    optionId: ConflictResolutionOption["id"],
     targetTaskId?: string
   ) => {
     if (!data) return;
@@ -573,16 +581,48 @@ export function JournoApp() {
       const json = await res.json();
       if (json.ok && json.result) {
         setConflict(null);
+        setPlanAdjustments(json.result.shiftedTasks ?? []);
         setLegs(json.result.legs ?? []);
         await loadBootstrap(data.date);
         pushToast("Conflict resolved and clean itinerary rebuilt!");
       } else if (json.conflict) {
         setConflict(json.conflict);
+        setPlanAdjustments([]);
         await loadBootstrap(data.date);
       }
     } finally {
       setBuilding(false);
     }
+  };
+
+  const handleRejectPlanShift = async (adj: ShiftedTaskNotice) => {
+    if (!data) return;
+    const target = data.tasks.find((t) => t.id === adj.taskId);
+    if (!target) return;
+
+    const restoredStart = adj.oldEta ?? target.windowStart;
+    const durMin = target.durationMin + (target.extendedMin ?? 0);
+    const startMin = parseTimeToMinutes(restoredStart);
+    const existingEndMin = parseTimeToMinutes(target.windowEnd);
+    const restoredEnd =
+      startMin !== null
+        ? target.windowStart === restoredStart && existingEndMin !== null && existingEndMin > startMin
+          ? target.windowEnd
+          : formatMinutesToTime(Math.min(23 * 60 + 55, startMin + Math.max(15, durMin)))
+        : target.windowEnd;
+
+    setPlanAdjustments((prev) => prev.filter((item) => item.taskId !== adj.taskId));
+    await fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: target.id,
+        isFlexible: false,
+        windowStart: restoredStart,
+        windowEnd: restoredEnd,
+      }),
+    });
+    await handleBuildPlan({ summary: `Declined shift for ${target.title}` });
   };
 
   const handleTestConflict = async () => {
@@ -1182,6 +1222,11 @@ export function JournoApp() {
                 handleUpdateTaskBudget(taskId, { friendRideNote: note, friendRideCost: cost })
               }
               conflict={conflict}
+              planAdjustments={planAdjustments}
+              onDismissAdjustment={(taskId) =>
+                setPlanAdjustments((prev) => prev.filter((item) => item.taskId !== taskId))
+              }
+              onRejectAdjustment={handleRejectPlanShift}
               freeLimitCount={data.freeLimitCount}
               freeLimitMax={data.freeLimitMax}
               building={building}

@@ -188,16 +188,31 @@ export interface DayPlanItem {
 }
 
 export interface ConflictResolutionOption {
-  id: "REMOVE_FLEXIBLE" | "SHIFT_WINDOW" | "ENABLE_BOTH_MODES";
+  id:
+    | "REMOVE_FLEXIBLE"
+    | "SHIFT_WINDOW"
+    | "ENABLE_BOTH_MODES"
+    | "SWITCH_TO_TAXI"
+    | "SWITCH_TO_CAR"
+    | "MAKE_FLEXIBLE";
   label: string;
   description: string;
   targetTaskId?: string;
+}
+
+export interface ShiftedTaskNotice {
+  taskId: string;
+  title: string;
+  oldEta: string | null;
+  newEta: string | null;
+  reason?: string;
 }
 
 export interface RouteConflict {
   reason: string;
   affectedTaskIds: string[];
   affectedTitles: string[];
+  recommendedMode?: "TAXI" | "CAR";
   options: ConflictResolutionOption[];
 }
 

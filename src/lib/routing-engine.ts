@@ -3,6 +3,7 @@ import {
   LegEstimate,
   MapProvider,
   RouteConflict,
+  ShiftedTaskNotice,
   TaskItem,
   TransportPref,
   TravelMode,
@@ -50,7 +51,7 @@ export interface SolveScheduleResult {
   conflict: RouteConflict | null;
   deltaMinutes: number;
   deltaKm: number;
-  shiftedTasks: { taskId: string; title: string; oldEta: string | null; newEta: string | null }[];
+  shiftedTasks: ShiftedTaskNotice[];
 }
 
 function computeCacheCell(a: MatrixPoint, b: MatrixPoint, trafficMultiplier = 1): LegMatrixCell {
@@ -431,7 +432,8 @@ function simulateOrder(
   startMin: number,
   matrix: Map<string, LegMatrixCell>,
   pointsMap: Map<string, MatrixPoint>,
-  transportPref: TransportPref
+  transportPref: TransportPref,
+  shiftedFlexIds?: Set<string>
 ): {
   feasible: boolean;
   totalTravelMin: number;
@@ -439,6 +441,12 @@ function simulateOrder(
   totalKm: number;
   carContinuityActive: boolean;
   failedTaskId?: string;
+  failedPrevId?: string;
+  failedArrivalMin?: number;
+  failedTravelMin?: number;
+  failedChosenMode?: TravelMode;
+  failedCell?: LegMatrixCell;
+  failedOverlapPrev?: boolean;
   failedReason?: string;
   schedule: {
     task: TaskItem;
@@ -473,8 +481,34 @@ function simulateOrder(
     const wStart = parseTimeToMinutes(task.windowStart);
     const wEnd = parseTimeToMinutes(task.windowEnd);
     const effectiveDur = task.durationMin + (task.extendedMin || 0);
+    const isShiftedFlex = task.isFlexible && Boolean(shiftedFlexIds?.has(task.id));
 
-    if (!task.isFlexible && wEnd !== null && arrivalMin > wEnd) {
+    // Fixed tasks must arrive on time for their exact start window (2-min tolerance).
+    if (!task.isFlexible && wStart !== null && arrivalMin > wStart + 2) {
+      const overlapPrev = prevId !== "START" && departureMin > wStart;
+      const taxiMin = getModeTravelMin("TAXI", cell);
+      const carMin = getModeTravelMin("CAR", cell);
+      let failedReason: string;
+      if (overlapPrev) {
+        failedReason = `"${task.title}" is fixed at ${task.windowStart}, which overlaps with the previous task ending at ${formatMinutesToTime(departureMin)}.`;
+      } else {
+        const modeLabel =
+          evalRes.chosenMode === "TRANSIT"
+            ? "bus/transit"
+            : evalRes.chosenMode === "WALK"
+              ? "walking"
+              : evalRes.chosenMode.toLowerCase();
+        const fasterHint =
+          taxiMin < travelMin - 2
+            ? ` Switching to Taxi (~${taxiMin} min) or Car (~${carMin} min) saves ${travelMin - taxiMin} min on this hop.`
+            : "";
+        failedReason = `Finishing the prior stop at ${formatMinutesToTime(
+          departureMin
+        )}, going by ${modeLabel} (${travelMin} min) arrives at "${task.title}" at ${formatMinutesToTime(
+          arrivalMin
+        )} — missing its fixed ${task.windowStart} start.${fasterHint}`;
+      }
+
       return {
         feasible: false,
         totalTravelMin,
@@ -482,17 +516,22 @@ function simulateOrder(
         totalKm,
         carContinuityActive: carActive,
         failedTaskId: task.id,
-        failedReason: `"${task.title}" arrives at ${formatMinutesToTime(
-          arrivalMin
-        )}, missing its ${task.windowStart ?? ""}-${task.windowEnd} window.`,
+        failedPrevId: prevId,
+        failedArrivalMin: arrivalMin,
+        failedTravelMin: travelMin,
+        failedChosenMode: evalRes.chosenMode,
+        failedCell: cell,
+        failedOverlapPrev: overlapPrev,
+        failedReason,
         schedule: [],
       };
     }
 
-    const startServiceMin = wStart !== null ? Math.max(arrivalMin, wStart) : arrivalMin;
+    const startServiceMin =
+      !isShiftedFlex && wStart !== null ? Math.max(arrivalMin, wStart) : arrivalMin;
     const endServiceMin = startServiceMin + effectiveDur;
 
-    if (!task.isFlexible && wEnd !== null && startServiceMin > wEnd) {
+    if (!task.isFlexible && wEnd !== null && endServiceMin > wEnd + 2) {
       return {
         feasible: false,
         totalTravelMin,
@@ -500,7 +539,34 @@ function simulateOrder(
         totalKm,
         carContinuityActive: carActive,
         failedTaskId: task.id,
-        failedReason: `"${task.title}" cannot start before window end ${task.windowEnd}.`,
+        failedPrevId: prevId,
+        failedArrivalMin: arrivalMin,
+        failedTravelMin: travelMin,
+        failedChosenMode: evalRes.chosenMode,
+        failedCell: cell,
+        failedOverlapPrev: prevId !== "START" && departureMin > (wStart ?? wEnd),
+        failedReason: `"${task.title}" would finish at ${formatMinutesToTime(
+          endServiceMin
+        )}, exceeding its fixed ${task.windowStart ?? ""}-${task.windowEnd} window.`,
+        schedule: [],
+      };
+    }
+
+    // Before allowing automatic shifting, check if an unshifted flexible task still fits its preferred window.
+    if (task.isFlexible && !isShiftedFlex && wEnd !== null && endServiceMin > wEnd + 2) {
+      return {
+        feasible: false,
+        totalTravelMin,
+        roundTripScoreMin: totalTravelMin,
+        totalKm,
+        carContinuityActive: carActive,
+        failedTaskId: task.id,
+        failedPrevId: prevId,
+        failedArrivalMin: arrivalMin,
+        failedTravelMin: travelMin,
+        failedChosenMode: evalRes.chosenMode,
+        failedCell: cell,
+        failedReason: `"${task.title}" does not fit in its preferred ${task.windowStart ?? ""}-${task.windowEnd} window.`,
         schedule: [],
       };
     }
@@ -618,11 +684,95 @@ export async function solveDailySchedule(
   if (!anchorCheck.feasible) {
     const failedId = anchorCheck.failedTaskId;
     const failedIdx = hardAnchors.findIndex((t) => t.id === failedId);
-    const prevAnchor = failedIdx > 0 ? hardAnchors[failedIdx - 1] : null;
+    const prevAnchor =
+      anchorCheck.failedPrevId && anchorCheck.failedPrevId !== "START"
+        ? hardAnchors.find((t) => t.id === anchorCheck.failedPrevId) ??
+          (failedIdx > 0 ? hardAnchors[failedIdx - 1] : null)
+        : failedIdx > 0
+          ? hardAnchors[failedIdx - 1]
+          : null;
     const failedAnchor = failedIdx >= 0 ? hardAnchors[failedIdx] : hardAnchors[0];
-    const affected = [prevAnchor, failedAnchor].filter(Boolean) as TaskItem[];
+    const overlappingPeers = hardAnchors.filter((other) => {
+      if (!failedAnchor || other.id === failedAnchor.id) return false;
+      const aStart = parseTimeToMinutes(failedAnchor.windowStart);
+      const aDur = failedAnchor.durationMin + (failedAnchor.extendedMin ?? 0);
+      const aEnd = aStart !== null ? aStart + aDur : parseTimeToMinutes(failedAnchor.windowEnd);
+      const bStart = parseTimeToMinutes(other.windowStart);
+      const bDur = other.durationMin + (other.extendedMin ?? 0);
+      const bEnd = bStart !== null ? bStart + bDur : parseTimeToMinutes(other.windowEnd);
+      if (aStart === null || aEnd === null || bStart === null || bEnd === null) return false;
+      return aStart < bEnd && bStart < aEnd;
+    });
+    const affectedMap = new Map<string, TaskItem>();
+    for (const item of [prevAnchor, failedAnchor, ...overlappingPeers]) {
+      if (item) affectedMap.set(item.id, item);
+    }
+    const affected = Array.from(affectedMap.values());
 
     const options: ConflictResolutionOption[] = [];
+    let recommendedMode: "TAXI" | "CAR" | undefined;
+
+    if (failedAnchor && anchorCheck.failedCell) {
+      const failTravel = anchorCheck.failedTravelMin ?? 0;
+      const taxiMin = getModeTravelMin("TAXI", anchorCheck.failedCell);
+      const carMin = getModeTravelMin("CAR", anchorCheck.failedCell);
+
+      if (failedAnchor.legMode !== "TAXI" && taxiMin < failTravel - 2) {
+        const taxiCandidate = hardAnchors.map((t) =>
+          t.id === failedAnchor.id
+            ? { ...t, legMode: "TAXI" as const, legModeChosenByUser: true }
+            : t
+        );
+        const taxiSim = simulateOrder(
+          taxiCandidate,
+          dayStartMin,
+          matrix,
+          pointsMap,
+          input.transportPref
+        );
+        if (taxiSim.feasible) {
+          recommendedMode = "TAXI";
+          options.push({
+            id: "SWITCH_TO_TAXI",
+            label: `Take Taxi to "${failedAnchor.title}" (~${taxiMin} min vs ${failTravel} min)`,
+            description: `Taxi saves ${failTravel - taxiMin} min on this hop so you arrive on time for your fixed window.`,
+            targetTaskId: failedAnchor.id,
+          });
+        }
+      }
+
+      if (failedAnchor.legMode !== "CAR" && carMin < failTravel - 2) {
+        const carCandidate = hardAnchors.map((t) =>
+          t.id === failedAnchor.id
+            ? { ...t, legMode: "CAR" as const, legModeChosenByUser: true }
+            : t
+        );
+        const carSim = simulateOrder(
+          carCandidate,
+          dayStartMin,
+          matrix,
+          pointsMap,
+          input.transportPref
+        );
+        if (carSim.feasible) {
+          if (!recommendedMode) recommendedMode = "CAR";
+          options.push({
+            id: "SWITCH_TO_CAR",
+            label: `Drive by Car to "${failedAnchor.title}" (~${carMin} min vs ${failTravel} min)`,
+            description: `Driving saves ${failTravel - carMin} min on this hop so you keep your fixed window.`,
+            targetTaskId: failedAnchor.id,
+          });
+        }
+      }
+
+      options.push({
+        id: "MAKE_FLEXIBLE",
+        label: `Make "${failedAnchor.title}" flexible`,
+        description: `Let Journo move "${failedAnchor.title}" into an open slot instead of holding its fixed time.`,
+        targetTaskId: failedAnchor.id,
+      });
+    }
+
     if (flexTasks.length > 0) {
       options.push({
         id: "REMOVE_FLEXIBLE",
@@ -639,7 +789,7 @@ export async function solveDailySchedule(
         targetTaskId: failedAnchor.id,
       });
     }
-    if (input.transportPref !== "BOTH") {
+    if (input.transportPref !== "BOTH" && input.transportPref !== "CAR") {
       options.push({
         id: "ENABLE_BOTH_MODES",
         label: "Enable both Walk & Transit",
@@ -668,6 +818,7 @@ export async function solveDailySchedule(
           "Time windows overlap or travel time exceeds the available gap between hard anchors.",
         affectedTaskIds: affected.map((t) => t.id),
         affectedTitles: affected.map((t) => t.title),
+        recommendedMode,
         options,
       },
       deltaMinutes: 0,
@@ -679,25 +830,60 @@ export async function solveDailySchedule(
   // Step 2: Insert Flexible Tasks using branch-and-bound / cheapest feasible insertion
   let bestOrder: TaskItem[] = [...hardAnchors];
   let bestSim = anchorCheck;
+  const shiftedFlexIds = new Set<string>();
+  const shiftReasons = new Map<string, { preferredWindow: string }>();
 
-  for (const flex of flexTasks) {
+  const tryInsertFlex = (flex: TaskItem, shiftedSet: Set<string>) => {
     let localBestOrder: TaskItem[] | null = null;
     let localBestSim: ReturnType<typeof simulateOrder> | null = null;
-
+    let localBestScore = Infinity;
     for (let pos = 0; pos <= bestOrder.length; pos++) {
       const candidate = [...bestOrder.slice(0, pos), flex, ...bestOrder.slice(pos)];
-      const sim = simulateOrder(candidate, dayStartMin, matrix, pointsMap, input.transportPref);
+      const sim = simulateOrder(
+        candidate,
+        dayStartMin,
+        matrix,
+        pointsMap,
+        input.transportPref,
+        shiftedSet
+      );
       if (sim.feasible) {
-        if (!localBestSim || sim.roundTripScoreMin < localBestSim.roundTripScoreMin) {
+        // When auto-shifting a flexible task, avoid pushing it late into the night (>20:00)
+        // when a daytime/morning opening fits cleanly.
+        const flexSlot = sim.schedule.find((s) => s.task.id === flex.id);
+        const lateNightPenalty =
+          shiftedSet.has(flex.id) && flexSlot && flexSlot.startServiceMin >= 20 * 60 ? 45 : 0;
+        const candidateScore = sim.roundTripScoreMin + lateNightPenalty;
+        if (!localBestSim || candidateScore < localBestScore) {
           localBestOrder = candidate;
           localBestSim = sim;
+          localBestScore = candidateScore;
         }
       }
     }
+    return localBestOrder && localBestSim ? { order: localBestOrder, sim: localBestSim } : null;
+  };
 
-    if (localBestOrder && localBestSim) {
-      bestOrder = localBestOrder;
-      bestSim = localBestSim;
+  for (const flex of flexTasks) {
+    let match = tryInsertFlex(flex, shiftedFlexIds);
+
+    // If flexible task had a preferred window that is blocked, automatically try moving it to another open slot.
+    if (!match && (flex.windowStart || flex.windowEnd)) {
+      const nextShifted = new Set(shiftedFlexIds);
+      nextShifted.add(flex.id);
+      const shiftedMatch = tryInsertFlex(flex, nextShifted);
+      if (shiftedMatch) {
+        shiftedFlexIds.add(flex.id);
+        shiftReasons.set(flex.id, {
+          preferredWindow: flex.windowStart ?? flex.windowEnd ?? "preferred slot",
+        });
+        match = shiftedMatch;
+      }
+    }
+
+    if (match) {
+      bestOrder = match.order;
+      bestSim = match.sim;
     } else {
       // Flexible task cannot fit before a hard anchor; check if conflict needs resolution
       const conflictOptions: ConflictResolutionOption[] = [
@@ -708,6 +894,22 @@ export async function solveDailySchedule(
           targetTaskId: flex.id,
         },
       ];
+      let flexRecommendedMode: "TAXI" | "CAR" | undefined;
+      if (flex.legMode !== "TAXI") {
+        const taxiBest = tryInsertFlex(
+          { ...flex, legMode: "TAXI", legModeChosenByUser: true },
+          shiftedFlexIds
+        );
+        if (taxiBest) {
+          flexRecommendedMode = "TAXI";
+          conflictOptions.unshift({
+            id: "SWITCH_TO_TAXI",
+            label: `Take Taxi for "${flex.title}"`,
+            description: "Cut travel time so this flexible task fits between fixed anchors.",
+            targetTaskId: flex.id,
+          });
+        }
+      }
       if (hardAnchors.length > 0) {
         conflictOptions.push({
           id: "SHIFT_WINDOW",
@@ -716,7 +918,7 @@ export async function solveDailySchedule(
           targetTaskId: hardAnchors[hardAnchors.length - 1].id,
         });
       }
-      if (input.transportPref !== "BOTH") {
+      if (input.transportPref !== "BOTH" && input.transportPref !== "CAR") {
         conflictOptions.push({
           id: "ENABLE_BOTH_MODES",
           label: "Enable both Walk & Transit",
@@ -740,6 +942,7 @@ export async function solveDailySchedule(
           reason: `Not enough gap time to fit flexible task "${flex.title}" (${flex.durationMin} min) without missing a fixed appointment.`,
           affectedTaskIds: [flex.id, ...hardAnchors.map((a) => a.id)],
           affectedTitles: [flex.title, ...hardAnchors.map((a) => a.title)],
+          recommendedMode: flexRecommendedMode,
           options: conflictOptions,
         },
         deltaMinutes: 0,
@@ -845,17 +1048,34 @@ export async function solveDailySchedule(
   const prevTotalKm = prevTasks.reduce((sum, t) => sum + (t.legDistanceKm ?? 0), 0);
 
   const prevEtaMap = new Map(prevTasks.map((t) => [t.id, t.eta]));
-  const shiftedTasks = scheduledTasks
-    .filter((t) => {
-      const oldEta = prevEtaMap.get(t.id);
-      return oldEta !== undefined && oldEta !== t.eta;
-    })
-    .map((t) => ({
-      taskId: t.id,
-      title: t.title,
-      oldEta: prevEtaMap.get(t.id) ?? null,
-      newEta: t.eta,
-    }));
+  const shiftedTasks: ShiftedTaskNotice[] = [];
+  for (const t of scheduledTasks) {
+    const autoShift = shiftReasons.get(t.id);
+    if (autoShift) {
+      shiftedTasks.push({
+        taskId: t.id,
+        title: t.title,
+        oldEta: autoShift.preferredWindow,
+        newEta: t.eta,
+        reason: `Moved "${t.title}" from ${autoShift.preferredWindow} to ${t.eta ?? "earlier slot"} because other fixed commitments fill that time.`,
+      });
+      continue;
+    }
+    const oldEta = prevEtaMap.get(t.id);
+    if (oldEta && t.eta && oldEta !== t.eta) {
+      const oldMin = parseTimeToMinutes(oldEta);
+      const newMin = parseTimeToMinutes(t.eta);
+      if (oldMin !== null && newMin !== null && Math.abs(newMin - oldMin) >= 15) {
+        shiftedTasks.push({
+          taskId: t.id,
+          title: t.title,
+          oldEta,
+          newEta: t.eta,
+          reason: `Rescheduled "${t.title}" from ${oldEta} to ${t.eta} around updated tasks.`,
+        });
+      }
+    }
+  }
 
   const deltaMinutes = prevTasks.length > 0 ? optimizedTravelMin - prevTotalTravel : 0;
   const deltaKm =

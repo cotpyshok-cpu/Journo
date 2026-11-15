@@ -18,7 +18,14 @@ const solveSchema = z.object({
   summary: z.string().max(180).optional(),
   conflictAction: z
     .object({
-      optionId: z.enum(["REMOVE_FLEXIBLE", "SHIFT_WINDOW", "ENABLE_BOTH_MODES"]),
+      optionId: z.enum([
+        "REMOVE_FLEXIBLE",
+        "SHIFT_WINDOW",
+        "ENABLE_BOTH_MODES",
+        "SWITCH_TO_TAXI",
+        "SWITCH_TO_CAR",
+        "MAKE_FLEXIBLE",
+      ]),
       targetTaskId: z.string().optional(),
     })
     .optional(),
@@ -97,6 +104,32 @@ export async function POST(req: NextRequest) {
           data: { transportModes: "BOTH" },
         });
         activeTransportPref = "BOTH";
+      } else if (optionId === "SWITCH_TO_TAXI" && targetTaskId) {
+        await prisma.task.updateMany({
+          where: { id: targetTaskId, userId: user.id },
+          data: {
+            legMode: "TAXI",
+            legModeChosenByUser: true,
+            status: "PLANNED",
+          },
+        });
+      } else if (optionId === "SWITCH_TO_CAR" && targetTaskId) {
+        await prisma.task.updateMany({
+          where: { id: targetTaskId, userId: user.id },
+          data: {
+            legMode: "CAR",
+            legModeChosenByUser: true,
+            status: "PLANNED",
+          },
+        });
+      } else if (optionId === "MAKE_FLEXIBLE" && targetTaskId) {
+        await prisma.task.updateMany({
+          where: { id: targetTaskId, userId: user.id },
+          data: {
+            isFlexible: true,
+            status: "PLANNED",
+          },
+        });
       }
     }
 

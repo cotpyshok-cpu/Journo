@@ -188,4 +188,137 @@ describe("Journo TSPTW Routing Engine", () => {
     expect(res.providerUsed).toBe("CACHE");
     expect(res.isEstimateWithoutTraffic).toBe(true);
   });
+
+  it("warns on tight cross-town fixed tasks and recommends Taxi/Car when bus misses the start time", async () => {
+    const tasks: TaskItem[] = [
+      makeTask({
+        id: "coffee-1",
+        title: "Morning Coffee",
+        lat: 51.0906,
+        lng: 71.3986, // Mega Silk Way area
+        windowStart: "10:00",
+        windowEnd: "10:40",
+        durationMin: 40,
+        isFlexible: false,
+      }),
+      makeTask({
+        id: "gym-2",
+        title: "Cross-town Gym",
+        lat: 51.1489,
+        lng: 71.4712, // ~10.9 km away (~32 min bus vs ~22 min taxi)
+        windowStart: "11:05",
+        windowEnd: "12:15",
+        durationMin: 60,
+        isFlexible: false,
+      }),
+    ];
+
+    const conflictRes = await solveDailySchedule({
+      origin: ORIGIN,
+      tasks,
+      transportPref: "TRANSIT",
+      dayStartMin: 540,
+      offline: true,
+    });
+
+    expect(conflictRes.ok).toBe(false);
+    expect(conflictRes.conflict).not.toBeNull();
+    expect(conflictRes.conflict?.recommendedMode).toBe("TAXI");
+    expect(conflictRes.conflict?.options.some((o) => o.id === "SWITCH_TO_TAXI")).toBe(true);
+    expect(conflictRes.conflict?.options.some((o) => o.id === "MAKE_FLEXIBLE")).toBe(true);
+
+    // Switching that leg to TAXI resolves the cross-town fixed conflict cleanly
+    const taxiRes = await solveDailySchedule({
+      origin: ORIGIN,
+      tasks: tasks.map((t) =>
+        t.id === "gym-2" ? { ...t, legMode: "TAXI", legModeChosenByUser: true } : t
+      ),
+      transportPref: "TRANSIT",
+      dayStartMin: 540,
+      offline: true,
+    });
+
+    expect(taxiRes.ok).toBe(true);
+    expect(taxiRes.scheduledTasks.find((t) => t.id === "gym-2")?.legMode).toBe("TAXI");
+  });
+
+  it("detects same-time fixed task overlap (10:00-11:00 vs 10:00-11:00)", async () => {
+    const tasks: TaskItem[] = [
+      makeTask({
+        id: "fixed-a",
+        title: "Client Sync",
+        lat: 51.0897,
+        lng: 71.4167,
+        windowStart: "10:00",
+        windowEnd: "11:00",
+        durationMin: 60,
+        isFlexible: false,
+      }),
+      makeTask({
+        id: "fixed-b",
+        title: "Doctor Visit",
+        lat: 51.1288,
+        lng: 71.4342,
+        windowStart: "10:00",
+        windowEnd: "11:00",
+        durationMin: 60,
+        isFlexible: false,
+      }),
+    ];
+
+    const res = await solveDailySchedule({
+      origin: ORIGIN,
+      tasks,
+      transportPref: "BOTH",
+      dayStartMin: 540,
+      offline: true,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.conflict).not.toBeNull();
+    expect(res.conflict?.affectedTaskIds).toContain("fixed-a");
+    expect(res.conflict?.affectedTaskIds).toContain("fixed-b");
+    expect(res.conflict?.options.some((o) => o.id === "MAKE_FLEXIBLE")).toBe(true);
+  });
+
+  it("auto-shifts a flexible evening task to morning when evening is blocked and reports shiftedTasks notice", async () => {
+    const tasks: TaskItem[] = [
+      makeTask({
+        id: "evening-dinner",
+        title: "Evening Client Dinner",
+        lat: 51.1288,
+        lng: 71.4342,
+        windowStart: "18:00",
+        windowEnd: "20:00",
+        durationMin: 105,
+        isFlexible: false,
+      }),
+      makeTask({
+        id: "flex-gym",
+        title: "Evening Gym",
+        lat: 51.0892,
+        lng: 71.4084,
+        windowStart: "18:00",
+        windowEnd: "20:00",
+        durationMin: 60,
+        isFlexible: true,
+      }),
+    ];
+
+    const res = await solveDailySchedule({
+      origin: ORIGIN,
+      tasks,
+      transportPref: "BOTH",
+      dayStartMin: 540, // 09:00
+      offline: true,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.shiftedTasks.length).toBeGreaterThanOrEqual(1);
+    const shiftNotice = res.shiftedTasks.find((s) => s.taskId === "flex-gym");
+    expect(shiftNotice).toBeDefined();
+    expect(shiftNotice?.oldEta).toBe("18:00");
+    expect(shiftNotice?.newEta).toMatch(/^09:/);
+    expect(shiftNotice?.reason).toContain("Evening Gym");
+  });
 });
