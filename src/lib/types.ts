@@ -102,6 +102,7 @@ export interface TaskItem {
   actualVenueSpend?: number | null;
   actualTransportSpend?: number | null;
   parkingCost?: number;
+  createdAt?: string | Date;
 }
 
 export interface TaskSeriesItem {

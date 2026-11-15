@@ -58,6 +58,10 @@ interface MorningPlanViewProps {
   onUpdateFriendRide?: (taskId: string, note: string, cost: number | null) => void;
   conflict: RouteConflict | null;
   planAdjustments?: ShiftedTaskNotice[];
+  autoOptimizeNotes?: string[];
+  needsCriticalDecision?: boolean;
+  onDismissAutoOptimize?: () => void;
+  onAutoOptimize?: () => void;
   onDismissAdjustment?: (taskId: string) => void;
   onRejectAdjustment?: (adj: ShiftedTaskNotice) => void;
   freeLimitCount: number;
@@ -97,6 +101,10 @@ export function MorningPlanView({
   onUpdateFriendRide,
   conflict,
   planAdjustments = [],
+  autoOptimizeNotes = [],
+  needsCriticalDecision = false,
+  onDismissAutoOptimize,
+  onAutoOptimize,
   onDismissAdjustment,
   onRejectAdjustment,
   freeLimitCount,
@@ -199,11 +207,9 @@ export function MorningPlanView({
                 </strong>{" "}
                 <span className="text-[#C6D5CC]">transit/walk</span>
               </span>
-              {dayPlan.savedMin > 0 ? (
-                <span className="inline-flex items-center rounded-full bg-[#3F7A63] px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                  Saved {dayPlan.savedMin} min of travel
-                </span>
-              ) : null}
+              <span className="inline-flex items-center rounded-full bg-[#3F7A63] px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                Saved {dayPlan.savedMin} min of travel
+              </span>
             </div>
           </div>
         ) : null}
@@ -381,6 +387,50 @@ export function MorningPlanView({
               </div>
             ))}
           </div>
+
+          {onAutoOptimize ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E08A3C]/25">
+              <p className="text-xs text-[#5E766B]">
+                Apply all safe shifts and recalculate time savings in one click.
+              </p>
+              <Button
+                variant="dark"
+                size="sm"
+                disabled={building || offline}
+                onClick={onAutoOptimize}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[#E8A086]" aria-hidden="true" />
+                Optimize All
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* Auto-Optimization Summary Banner (after clicking Optimize) */}
+      {!conflict && autoOptimizeNotes.length > 0 ? (
+        <Card className="border-[#3F7A63]/40 bg-[#EEF5F1] p-4 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <Sparkles className="h-5 w-5 text-[#2F453B] shrink-0 mt-0.5" aria-hidden="true" />
+              <div>
+                <h2 className="font-display text-sm font-bold text-[#2F453B]">
+                  Plan Auto-Optimized{" "}
+                  {dayPlan ? `· Saved ${dayPlan.savedMin} min total` : ""}
+                </h2>
+                <ul className="mt-1 space-y-0.5 text-xs text-[#5E766B] list-disc list-inside">
+                  {autoOptimizeNotes.map((note, i) => (
+                    <li key={i}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            {onDismissAutoOptimize ? (
+              <Button variant="ghost" size="sm" onClick={onDismissAutoOptimize}>
+                Dismiss
+              </Button>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 
@@ -392,7 +442,9 @@ export function MorningPlanView({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-display text-base font-bold text-[#B05454]">
-                  Schedule Conflict Detected
+                  {needsCriticalDecision
+                    ? "Critical Overlap — Your Confirmation Needed"
+                    : "Schedule Conflict Detected"}
                 </h2>
                 {conflict.recommendedMode ? (
                   <Badge variant="warn">
@@ -407,6 +459,12 @@ export function MorningPlanView({
                 Affected tasks: <strong>{conflict.affectedTitles.join(", ")}</strong>. Your schedule is
                 too tight to fit everything — pick how you&apos;d like to handle it:
               </p>
+              {autoOptimizeNotes.length > 0 ? (
+                <div className="mt-2 rounded-lg bg-white/80 border border-[#DFDBD0] px-3 py-2 text-xs text-[#2F453B]">
+                  <strong>Already optimized automatically:</strong>{" "}
+                  {autoOptimizeNotes.join(" · ")}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -434,6 +492,23 @@ export function MorningPlanView({
               );
             })}
           </div>
+
+          {onAutoOptimize && !needsCriticalDecision ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#B05454]/20">
+              <p className="text-xs text-[#5E766B]">
+                Don&apos;t want to pick one by one? Auto-apply safe fixes and ask only about critical overlaps.
+              </p>
+              <Button
+                variant="dark"
+                size="sm"
+                disabled={building || offline}
+                onClick={onAutoOptimize}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[#E8A086]" aria-hidden="true" />
+                Optimize
+              </Button>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

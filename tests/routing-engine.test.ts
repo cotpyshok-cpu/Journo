@@ -321,4 +321,46 @@ describe("Journo TSPTW Routing Engine", () => {
     expect(shiftNotice?.newEta).toMatch(/^09:/);
     expect(shiftNotice?.reason).toContain("Evening Gym");
   });
+
+  it("updates savedMin accurately after shifting/reordering and switching a leg to Taxi even when input was previously planned", async () => {
+    const tasks: TaskItem[] = [
+      makeTask({
+        id: "opt-first",
+        title: "Far Stop First in Created Order",
+        lat: 51.0897,
+        lng: 71.4167, // ~6 km south
+        windowStart: "10:00",
+        windowEnd: "12:00",
+        durationMin: 30,
+        isFlexible: true,
+        createdAt: "2026-11-15T01:00:00Z",
+      }),
+      makeTask({
+        id: "opt-second",
+        title: "Cross-town Fixed Stop Upgraded to Taxi",
+        lat: 51.1489,
+        lng: 71.4712,
+        windowStart: "11:00",
+        windowEnd: "12:00",
+        durationMin: 40,
+        isFlexible: false,
+        legMode: "TAXI",
+        legModeChosenByUser: true,
+        createdAt: "2026-11-15T02:00:00Z",
+      }),
+    ];
+
+    const res = await solveDailySchedule({
+      origin: ORIGIN,
+      tasks,
+      transportPref: "TRANSIT",
+      dayStartMin: 540,
+      offline: true,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.naiveTravelMin).toBeGreaterThan(res.totalTravelMin);
+    expect(res.savedMin).toBe(res.naiveTravelMin - res.totalTravelMin);
+    expect(res.savedMin).toBeGreaterThan(0);
+  });
 });

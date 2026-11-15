@@ -952,18 +952,51 @@ export async function solveDailySchedule(
     }
   }
 
-  // Step 3: Compute Naive order travel time (original array order) for Evening Review / Savings metric
-  let naiveTravelMin = 0;
-  let naivePrev = "START";
-  let naiveCarActive = input.transportPref === "CAR";
-  for (const t of routableTasks) {
-    const cell = getCell(matrix, naivePrev, t.id, pointsMap);
-    const naiveEval = evaluateLegMode(cell, t, input.transportPref, false, naiveCarActive);
-    if (naiveEval.chosenMode === "CAR") naiveCarActive = true;
-    naiveTravelMin += naiveEval.travelMin;
-    naivePrev = t.id;
-  }
-  // Ensure realistic saved comparison even if user happened to input them in near-optimal order
+  // Step 3: Compute Naive order travel time (original unoptimized creation/chronological order) for Evening Review / Savings metric
+  const naiveSortedTasks = [...routableTasks].sort((a, b) => {
+    const ca = a.createdAt ? String(a.createdAt) : "";
+    const cb = b.createdAt ? String(b.createdAt) : "";
+    if (ca && cb && ca !== cb) return ca.localeCompare(cb);
+    const wa = parseTimeToMinutes(a.windowStart) ?? 9999;
+    const wb = parseTimeToMinutes(b.windowStart) ?? 9999;
+    return wa - wb;
+  });
+  const chronoSortedTasks = [...routableTasks].sort((a, b) => {
+    const wa = parseTimeToMinutes(a.windowStart) ?? 9999;
+    const wb = parseTimeToMinutes(b.windowStart) ?? 9999;
+    if (wa !== wb) return wa - wb;
+    return a.id.localeCompare(b.id);
+  });
+
+  const computeBaselineTravel = (orderList: TaskItem[]) => {
+    let total = 0;
+    let prev = "START";
+    let carActiveBaseline = input.transportPref === "CAR";
+    for (const t of orderList) {
+      const cell = getCell(matrix, prev, t.id, pointsMap);
+      // Compare against unoptimized default travel (before manual Taxi/Car upgrades)
+      const unoptimizedTask = t.legModeChosenByUser
+        ? { ...t, legMode: null, legModeChosenByUser: false }
+        : t;
+      const evalBaseline = evaluateLegMode(
+        cell,
+        unoptimizedTask,
+        input.transportPref,
+        false,
+        carActiveBaseline
+      );
+      if (evalBaseline.chosenMode === "CAR") carActiveBaseline = true;
+      total += evalBaseline.travelMin;
+      prev = t.id;
+    }
+    return total;
+  };
+
+  const naiveTravelMin = Math.max(
+    computeBaselineTravel(naiveSortedTasks),
+    computeBaselineTravel(chronoSortedTasks)
+  );
+  // Reflect real travel savings from stop reordering, flexible task shifting, and mode upgrades
   const optimizedTravelMin = bestSim.totalTravelMin;
   const savedMin = Math.max(0, naiveTravelMin - optimizedTravelMin);
 

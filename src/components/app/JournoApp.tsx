@@ -165,6 +165,8 @@ export function JournoApp() {
   const [legs, setLegs] = useState<LegEstimate[]>([]);
   const [conflict, setConflict] = useState<RouteConflict | null>(null);
   const [planAdjustments, setPlanAdjustments] = useState<ShiftedTaskNotice[]>([]);
+  const [autoOptimizeNotes, setAutoOptimizeNotes] = useState<string[]>([]);
+  const [needsCriticalDecision, setNeedsCriticalDecision] = useState(false);
   const [building, setBuilding] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
@@ -536,6 +538,8 @@ export function JournoApp() {
       if (!json.ok && json.conflict) {
         setConflict(json.conflict);
         setPlanAdjustments([]);
+        setAutoOptimizeNotes([]);
+        setNeedsCriticalDecision(false);
         setCurrentScreen("S10");
         await loadBootstrap(data.date);
         pushToast("Schedule conflict detected — choose a recovery option.", "Conflict", "DELAY_RISK");
@@ -543,6 +547,7 @@ export function JournoApp() {
       }
 
       setConflict(null);
+      setNeedsCriticalDecision(false);
       setPlanAdjustments(json.result?.shiftedTasks ?? []);
       if (json.result?.legs) setLegs(json.result.legs);
       setCurrentScreen("S09");
@@ -554,6 +559,58 @@ export function JournoApp() {
           : json.result?.isEstimateWithoutTraffic
             ? "Route built from local distance cache."
             : `Route optimized! Saved ${json.result?.savedMin ?? 0} min.`
+      );
+    } finally {
+      setBuilding(false);
+    }
+  };
+
+  const handleAutoOptimize = async () => {
+    if (!data) return;
+    setBuilding(true);
+    try {
+      const res = await fetch("/api/route/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: data.date,
+          mode: "auto_optimize",
+          simulateQuotaExhausted: simFlags.quotaExhausted,
+          simulatePartialQuota: simFlags.partialQuota,
+          summary: "One-click auto-optimization",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        pushToast(json.error?.message || "Auto-optimization failed.");
+        return;
+      }
+
+      const notes: string[] = Array.isArray(json.autoActions) ? json.autoActions : [];
+      if (!json.ok && json.conflict) {
+        setConflict(json.conflict);
+        setPlanAdjustments([]);
+        setAutoOptimizeNotes(notes);
+        setNeedsCriticalDecision(Boolean(json.needsCriticalDecision));
+        setCurrentScreen("S10");
+        await loadBootstrap(data.date);
+        pushToast(
+          "Auto-optimized solvable steps — 1 critical overlap needs your decision.",
+          "Critical Choice Needed",
+          "DELAY_RISK"
+        );
+        return;
+      }
+
+      setConflict(null);
+      setPlanAdjustments([]);
+      setNeedsCriticalDecision(false);
+      setAutoOptimizeNotes(notes);
+      if (json.result?.legs) setLegs(json.result.legs);
+      setCurrentScreen("S09");
+      await loadBootstrap(data.date);
+      pushToast(
+        `Plan auto-optimized! Saved ${json.result?.savedMin ?? 0} min of travel.`
       );
     } finally {
       setBuilding(false);
@@ -581,10 +638,11 @@ export function JournoApp() {
       const json = await res.json();
       if (json.ok && json.result) {
         setConflict(null);
+        setNeedsCriticalDecision(false);
         setPlanAdjustments(json.result.shiftedTasks ?? []);
         setLegs(json.result.legs ?? []);
         await loadBootstrap(data.date);
-        pushToast("Conflict resolved and clean itinerary rebuilt!");
+        pushToast(`Conflict resolved! Saved ${json.result.savedMin ?? 0} min.`);
       } else if (json.conflict) {
         setConflict(json.conflict);
         setPlanAdjustments([]);
@@ -913,6 +971,13 @@ export function JournoApp() {
   const handleDeleteTask = async (taskId: string) => {
     await fetch(`/api/tasks?id=${encodeURIComponent(taskId)}`, { method: "DELETE" });
     await loadBootstrap(data?.date);
+    const isLiveDay = data?.dayPlan?.state === "ACTIVE" || activeTab === "live";
+    const remainingRouted = (data?.tasks ?? []).filter(
+      (t) => t.id !== taskId && t.lat != null && t.plannedOrder != null
+    );
+    if (isLiveDay || remainingRouted.length > 0) {
+      await handleBuildPlan({ summary: "Recalculated savings after removing task" });
+    }
     pushToast("Task deleted.");
   };
 
@@ -1223,6 +1288,10 @@ export function JournoApp() {
               }
               conflict={conflict}
               planAdjustments={planAdjustments}
+              autoOptimizeNotes={autoOptimizeNotes}
+              needsCriticalDecision={needsCriticalDecision}
+              onDismissAutoOptimize={() => setAutoOptimizeNotes([])}
+              onAutoOptimize={handleAutoOptimize}
               onDismissAdjustment={(taskId) =>
                 setPlanAdjustments((prev) => prev.filter((item) => item.taskId !== taskId))
               }

@@ -9,7 +9,9 @@ import { formatMinutesToTime, parseTimeToMinutes } from "@/lib/utils";
 
 const solveSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  mode: z.enum(["build", "preview", "accept", "start_day", "complete_day", "resolve_conflict"]).default("build"),
+  mode: z
+    .enum(["build", "preview", "accept", "start_day", "complete_day", "resolve_conflict", "auto_optimize"])
+    .default("build"),
   offline: z.boolean().optional(),
   simulateQuotaExhausted: z.boolean().optional(),
   simulatePartialQuota: z.boolean().optional(),
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
 
     const tasks = (await prisma.task.findMany({
       where: { userId: user.id, date: input.date },
-      orderBy: [{ plannedOrder: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ createdAt: "asc" }],
     })) as unknown as TaskItem[];
 
     const existingPlanForOrigin = await prisma.dayPlan.findUnique({
@@ -171,8 +173,9 @@ export async function POST(req: NextRequest) {
           510) + (lastCompleted.durationMin ?? 30)
       : 510;
     const effectiveDayStartMin = input.dayStartMin ?? Math.max(510, lastDoneEndMin);
+    const previousTasksSnapshot = tasks.filter((t) => t.plannedOrder != null);
 
-    const result = await solveDailySchedule({
+    let result = await solveDailySchedule({
       origin: { lat: originLat, lng: originLng, label: originLabel },
       tasks,
       transportPref: activeTransportPref,
@@ -182,8 +185,101 @@ export async function POST(req: NextRequest) {
       simulateQuotaExhausted: input.simulateQuotaExhausted,
       simulatePartialQuota: input.simulatePartialQuota,
       trafficDelayMultiplier: input.trafficDelayMultiplier,
-      previousTasks: tasks.filter((t) => t.plannedOrder != null),
+      previousTasks: previousTasksSnapshot,
     });
+
+    const autoActions: string[] = [];
+    if (input.mode === "auto_optimize") {
+      let workingTasks = tasks.map((t) => ({ ...t }));
+      const patchedTaskData = new Map<
+        string,
+        { legMode?: "TAXI" | "CAR" | "TRANSIT" | "WALK"; legModeChosenByUser?: boolean }
+      >();
+      let prefUpdated = false;
+
+      for (let pass = 0; pass < 6; pass++) {
+        if (pass > 0) {
+          result = await solveDailySchedule({
+            origin: { lat: originLat, lng: originLng, label: originLabel },
+            tasks: workingTasks,
+            transportPref: activeTransportPref,
+            dayStartMin: effectiveDayStartMin,
+            plannedOrderOffset,
+            offline: false,
+            simulateQuotaExhausted: input.simulateQuotaExhausted,
+            simulatePartialQuota: input.simulatePartialQuota,
+            trafficDelayMultiplier: input.trafficDelayMultiplier,
+            previousTasks: previousTasksSnapshot,
+          });
+        }
+
+        if (result.ok) {
+          for (const s of result.shiftedTasks) {
+            if (s.reason && !autoActions.includes(s.reason)) {
+              autoActions.push(s.reason);
+            }
+          }
+          break;
+        }
+
+        if (!result.conflict) break;
+        const opts = result.conflict.options;
+        const enableBoth = opts.find((o) => o.id === "ENABLE_BOTH_MODES");
+        const switchCar = opts.find((o) => o.id === "SWITCH_TO_CAR");
+        const switchTaxi = opts.find((o) => o.id === "SWITCH_TO_TAXI");
+
+        if (enableBoth && activeTransportPref !== "BOTH") {
+          activeTransportPref = "BOTH";
+          prefUpdated = true;
+          autoActions.push("Enabled Walk + Transit multi-modal routing to speed up connections.");
+          continue;
+        }
+        if (switchCar && switchCar.targetTaskId && user.transportModes === "CAR") {
+          const targetId = switchCar.targetTaskId;
+          workingTasks = workingTasks.map((t) =>
+            t.id === targetId ? { ...t, legMode: "CAR", legModeChosenByUser: true } : t
+          );
+          patchedTaskData.set(targetId, { legMode: "CAR", legModeChosenByUser: true });
+          autoActions.push(switchCar.label);
+          continue;
+        }
+        if (switchTaxi && switchTaxi.targetTaskId) {
+          const targetId = switchTaxi.targetTaskId;
+          workingTasks = workingTasks.map((t) =>
+            t.id === targetId ? { ...t, legMode: "TAXI", legModeChosenByUser: true } : t
+          );
+          patchedTaskData.set(targetId, { legMode: "TAXI", legModeChosenByUser: true });
+          autoActions.push(switchTaxi.label);
+          continue;
+        }
+
+        // Remaining conflict requires critical user choice (overlapping fixed windows or dropping a task)
+        break;
+      }
+
+      if (prefUpdated) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { transportModes: activeTransportPref },
+        });
+      }
+      if (patchedTaskData.size > 0) {
+        await Promise.all(
+          Array.from(patchedTaskData.entries()).map(([tid, patch]) =>
+            prisma.task.updateMany({
+              where: { id: tid, userId: user.id },
+              data: {
+                ...(patch.legMode ? { legMode: patch.legMode } : {}),
+                ...(patch.legModeChosenByUser !== undefined
+                  ? { legModeChosenByUser: patch.legModeChosenByUser }
+                  : {}),
+                status: "PLANNED",
+              },
+            })
+          )
+        );
+      }
+    }
 
     if (!result.ok && result.conflict) {
       // Persist CONFLICT status on affected tasks so S10 & task list reflect it
@@ -194,6 +290,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: false,
         conflict: result.conflict,
+        autoActions,
+        needsCriticalDecision: input.mode === "auto_optimize",
         providerUsed: result.providerUsed,
         isEstimateWithoutTraffic: result.isEstimateWithoutTraffic,
       });
@@ -278,6 +376,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       result,
       dayPlan,
+      autoActions,
     });
   } catch (error) {
     return handleApiError(error);
