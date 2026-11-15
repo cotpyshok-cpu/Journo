@@ -15,13 +15,43 @@ export async function GET(req: NextRequest) {
         ? dateParam
         : getDateInTimezone(user.currentTimezone || "Asia/Almaty", 0);
 
-    const [tasks, allUserTasksCount, series, connections, calendarEvents, dayPlan, recentDayPlans] =
-      await Promise.all([
-        prisma.task.findMany({
-          where: { userId: user.id, date: activeDate },
-          orderBy: [{ plannedOrder: "asc" }, { createdAt: "asc" }],
-        }),
-        prisma.task.count({
+    const [y, m, d] = activeDate.split("-").map(Number);
+    const baseDt = new Date(Date.UTC(y, m - 1, d));
+    const dow = baseDt.getUTCDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const weekStartStr = new Date(
+      Date.UTC(y, m - 1, d + mondayOffset)
+    )
+      .toISOString()
+      .slice(0, 10);
+    const weekEndStr = new Date(
+      Date.UTC(y, m - 1, d + mondayOffset + 6)
+    )
+      .toISOString()
+      .slice(0, 10);
+
+    const [
+      tasks,
+      weekTasks,
+      allUserTasksCount,
+      series,
+      connections,
+      calendarEvents,
+      dayPlan,
+      recentDayPlans,
+    ] = await Promise.all([
+      prisma.task.findMany({
+        where: { userId: user.id, date: activeDate },
+        orderBy: [{ plannedOrder: "asc" }, { createdAt: "asc" }],
+      }),
+      prisma.task.findMany({
+        where: {
+          userId: user.id,
+          date: { gte: weekStartStr, lte: weekEndStr },
+        },
+        orderBy: [{ date: "asc" }, { plannedOrder: "asc" }, { createdAt: "asc" }],
+      }),
+      prisma.task.count({
           where: {
             userId: user.id,
             date: activeDate,
@@ -68,6 +98,7 @@ export async function GET(req: NextRequest) {
       freeLimitMax: 5,
       user: toSafeUserDto(user),
       tasks,
+      weekTasks,
       series,
       calendarConnections: connections.map(toSafeCalendarConnectionDto),
       calendarEvents,

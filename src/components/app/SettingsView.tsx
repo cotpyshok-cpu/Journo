@@ -457,7 +457,7 @@ export function SettingsView({
         </div>
 
         <div className="pt-4">
-          <h3 className="text-sm font-bold text-[#B05454]">Danger Zone — Delete Account</h3>
+          <h3 className="text-sm font-bold text-[#B05454]">Delete Account</h3>
           <p className="mt-0.5 text-xs text-[#5E766B]">
             Permanently wipes all your data and signs out to the home screen. Type{" "}
             <strong>DELETE</strong> below to unlock confirmation.

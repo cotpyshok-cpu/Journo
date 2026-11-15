@@ -166,6 +166,7 @@ export function CalendarsAndSeriesView({
   const [evEnd, setEvEnd] = useState("15:45");
   const [evIsHard, setEvIsHard] = useState(true);
   const [editingTaskForLoc, setEditingTaskForLoc] = useState<TaskItem | null>(null);
+  const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
 
   // S21c Delete Event / Task Confirmation Modal
   const [pendingDeleteEvent, setPendingDeleteEvent] = useState<{
@@ -413,6 +414,39 @@ export function CalendarsAndSeriesView({
   }) => {
     setBusyAction("create_event");
     try {
+      if (editingCalendarEventId) {
+        const startTime = payload.windowStart || evStart || "15:00";
+        const sMin = hhmmToMin(startTime) ?? 15 * 60;
+        const endTime = payload.windowEnd || minToHhmm(sMin + (payload.durationMin || 45));
+        const patchEvRes = await fetch("/api/calendars", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editingCalendarEventId,
+            title: payload.title,
+            date: payload.date,
+            startTime,
+            endTime,
+            isHard: !payload.isFlexible,
+            locationName: payload.locationName,
+            address: payload.address,
+            lat: payload.lat,
+            lng: payload.lng,
+          }),
+        });
+        if (patchEvRes.ok) {
+          await onRefresh();
+          if (onRecalculatePlan && payload.date === date && payload.lat != null) {
+            await onRecalculatePlan();
+          }
+          setEditingCalendarEventId(null);
+          setEditingTaskForLoc(null);
+          setShowEventModal(false);
+          onNotify(`Updated "${payload.title}" in your calendar.`);
+        }
+        return;
+      }
+
       if (editingTaskForLoc && payload.id) {
         const patchRes = await fetch("/api/tasks", {
           method: "PATCH",
@@ -433,7 +467,11 @@ export function CalendarsAndSeriesView({
         });
         if (patchRes.ok) {
           await onRefresh();
+          if (onRecalculatePlan && payload.date === date && payload.lat != null) {
+            await onRecalculatePlan();
+          }
           setEditingTaskForLoc(null);
+          setShowEventModal(false);
           onNotify(`Updated "${payload.title}" in your schedule.`);
         }
         return;
@@ -614,18 +652,6 @@ export function CalendarsAndSeriesView({
             </button>
           ))}
         </div>
-
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => {
-            setEvDate(date);
-            setShowEventModal(true);
-          }}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New Event
-        </Button>
       </div>
 
       {/* TAB 1: CONNECTIONS — Internal + Google Calendar + Apple .ics */}
@@ -863,12 +889,78 @@ export function CalendarsAndSeriesView({
         };
 
         const openSlotModal = (slotDate: string, hour: number) => {
+          setEditingCalendarEventId(null);
           setEditingTaskForLoc(null);
           setEvDate(slotDate);
           setEvStart(`${String(hour).padStart(2, "0")}:00`);
           setEvEnd(`${String(Math.min(23, hour)).padStart(2, "0")}:45`);
           setEvIsHard(true);
           setShowEventModal(true);
+        };
+
+        const openEditScheduleItem = (item: ScheduleBlock, itemDate: string) => {
+          if (item.taskId) {
+            const foundTask = tasks.find((t) => t.id === item.taskId);
+            if (foundTask) {
+              setEditingCalendarEventId(item.eventId ?? null);
+              setEditingTaskForLoc(foundTask);
+              setEvDate(foundTask.date);
+              setEvStart(foundTask.windowStart || item.startTime);
+              setEvEnd(foundTask.windowEnd || item.endTime);
+              setEvIsHard(!foundTask.isFlexible);
+              setShowEventModal(true);
+              return;
+            }
+          }
+          const foundEvent = item.eventId
+            ? events.find((e) => e.id === item.eventId)
+            : undefined;
+          if (foundEvent) {
+            const sMin = hhmmToMin(foundEvent.startTime) ?? 9 * 60;
+            const eMin = hhmmToMin(foundEvent.endTime) ?? sMin + 45;
+            setEditingCalendarEventId(foundEvent.id);
+            setEditingTaskForLoc({
+              id: foundEvent.linkedTaskId || foundEvent.id,
+              userId: foundEvent.userId,
+              title: foundEvent.title,
+              locationName: foundEvent.locationName,
+              address: foundEvent.address,
+              lat: foundEvent.lat,
+              lng: foundEvent.lng,
+              date: foundEvent.date,
+              windowStart: foundEvent.startTime,
+              windowEnd: foundEvent.endTime,
+              durationMin: Math.max(15, eMin - sMin),
+              priority: foundEvent.isHard ? "HIGH" : "MEDIUM",
+              isFlexible: !foundEvent.isHard,
+              status: "PLANNED",
+              source: foundEvent.provider === "GOOGLE" ? "GOOGLE_CALENDAR" : "INTERNAL_CALENDAR",
+              externalId: foundEvent.externalId,
+              seriesId: null,
+              seriesOccurrenceIndex: null,
+              seriesTotalCount: null,
+              city: user.currentCity,
+              timezone: user.currentTimezone,
+              plannedOrder: null,
+              departureTime: null,
+              eta: null,
+              bufferMin: null,
+              legMode: null,
+              legDurationWalkMin: null,
+              legDurationTransitMin: null,
+              legDistanceKm: null,
+              legModeChosenByUser: false,
+              exceedsFreeLimit: false,
+              startedAt: null,
+              extendedMin: 0,
+              deletedInCalendar: false,
+            });
+            setEvDate(itemDate);
+            setEvStart(foundEvent.startTime);
+            setEvEnd(foundEvent.endTime);
+            setEvIsHard(foundEvent.isHard);
+            setShowEventModal(true);
+          }
         };
 
         return (
@@ -1034,7 +1126,11 @@ export function CalendarsAndSeriesView({
                                 left: `calc(${leftPct}% + 6px)`,
                                 width: `calc(${widthPct}% - 12px)`,
                               }}
-                              className={`absolute z-10 flex items-start justify-between gap-2 overflow-hidden rounded-xl px-3 py-1.5 shadow-xs ${getBlockClasses(
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditScheduleItem(item, date);
+                              }}
+                              className={`absolute z-10 flex items-start justify-between gap-2 overflow-hidden rounded-xl px-3 py-1.5 shadow-xs cursor-pointer transition-shadow hover:shadow-md ${getBlockClasses(
                                 item
                               )}`}
                             >
@@ -1277,9 +1373,13 @@ export function CalendarsAndSeriesView({
                             return (
                               <div
                                 key={item.key}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditScheduleItem(item, day.iso);
+                                }}
                                 style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                                title={`${item.title} (${item.startTime}–${item.endTime})`}
-                                className={`group absolute inset-x-1 z-10 flex items-start justify-between gap-1 overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-xs ${getBlockClasses(
+                                title={`${item.title} (${item.startTime}–${item.endTime}) — Click to edit`}
+                                className={`group absolute inset-x-1 z-10 flex items-start justify-between gap-1 overflow-hidden rounded-lg px-2 py-1 text-[11px] shadow-xs cursor-pointer transition-shadow hover:shadow-md ${getBlockClasses(
                                   item
                                 )}`}
                               >
@@ -1767,6 +1867,7 @@ export function CalendarsAndSeriesView({
         onClose={() => {
           setShowEventModal(false);
           setEditingTaskForLoc(null);
+          setEditingCalendarEventId(null);
         }}
         onSubmitTask={handleSubmitCalendarModal}
       />

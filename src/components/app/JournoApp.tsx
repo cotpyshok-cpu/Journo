@@ -88,6 +88,7 @@ interface BootstrapResponse {
   freeLimitMax: number;
   user: UserProfile;
   tasks: TaskItem[];
+  weekTasks?: TaskItem[];
   series: TaskSeriesItem[];
   calendarConnections: CalendarConnectionItem[];
   calendarEvents: CalendarEventItem[];
@@ -1385,7 +1386,12 @@ export function JournoApp() {
               key={calendarSubTab}
               user={user}
               date={data.date}
-              tasks={enrichedTasks}
+              tasks={[
+                ...enrichedTasks,
+                ...(data.weekTasks ?? []).filter(
+                  (wt) => !enrichedTasks.some((et) => et.id === wt.id)
+                ),
+              ]}
               connections={data.calendarConnections}
               events={data.calendarEvents}
               series={data.series}
