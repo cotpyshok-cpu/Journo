@@ -30,7 +30,6 @@ Copy `.env.example` to `.env` and populate keys for external live APIs when depl
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL connection URL in production (`postgresql://...`), or `file:./dev.db` locally. `scripts/setup-db.mjs` switches between `prisma/schema.prisma` (SQLite) and `prisma/schema.postgres.prisma` (Postgres) automatically. | Local SQLite `file:./dev.db` auto-created |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Real Google OAuth 2.0 login + `https://www.googleapis.com/auth/calendar.readonly` import. | Jury Sandbox Google Sync (`S18`) + OAuth token paste sync |
-| `GOOGLE_MAPS_API_KEY`, `HERE_API_KEY` | Primary & secondary server-side Walk + Transit distance/time matrix providers. | Automatic failover to OSRM / local urban matrix cache labeled `"Estimate without live traffic"` (`E6.2`, `E6.4`) |
 | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_MONTHLY_ID`, `STRIPE_PRICE_YEARLY_ID` | Live Stripe Test Checkout for Journo Pro (`$8/mo`, `$70/yr`). | Interactive Sandbox Checkout (`Pay & Upgrade`, `Webhook Delay`, `Payment Error`) in `S15` |
 | `NEXT_PUBLIC_APP_URL` | Canonical deployment origin for OAuth & Stripe return URLs. | Request `origin` fallback |
 
@@ -41,7 +40,7 @@ Copy `.env.example` to `.env` and populate keys for external live APIs when depl
 - **Stack:** Next.js 15 App Router, TypeScript (`strict`), Tailwind CSS, Prisma ORM (`5.22.0`), Leaflet interactive map, Chart.js 7-day analytics, PWA Service Worker (`public/sw.js`).
 - **Routing Engine (`src/lib/routing-engine.ts`):**
   - TSPTW (Traveling Salesman with Time Windows) branch-and-bound solver supporting up to 14 stops in under 1 second.
-  - Multi-provider failover chain: **Google Maps → HERE → OSRM → Local Matrix Cache**.
+  - Free open-source routing & geocoding stack: **OSRM → Local Urban Matrix Cache** (plus Photon / Nominatim address autocomplete, zero paid map API keys required).
   - Per-leg Walk vs. Transit comparison with `< 3 min` equal-speed rule (`isEqualSpeed`), `"Fastest"` label, and `"Chosen by you"` manual override + `"Restore fastest"`.
   - Conflict Resolution (`S10`): never drops tasks silently; offers Remove Flexible Stop, Shift Window `+45m`, or Enable Walk + Transit.
 - **Calendars (`S18`, `S21`, `S22`):**
