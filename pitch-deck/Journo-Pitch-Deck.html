@@ -319,6 +319,18 @@
       border-top: 1px solid rgba(255, 255, 255, 0.18);
       font-size: clamp(12px, 1.05vw, 14px);
       color: var(--text-dim);
+      gap: 12px;
+    }
+
+    .foot-link {
+      color: #ffd3c2;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      font-weight: 500;
+    }
+
+    .foot-link:hover {
+      color: #fff;
     }
 
     /* Layouts */
@@ -929,7 +941,7 @@
           </div>
 
           <div class="slide-foot">
-            <span>Track: Money · Sources: BLS 2024, Gridwise 2025, US Census ACS</span>
+            <span>Track: Money · Sources: <a class="foot-link" href="https://www.bls.gov/news.release/cesan.nr0.htm" target="_blank" rel="noopener">BLS Consumer Expenditures 2024</a> · <a class="foot-link" href="https://gridwise.io/" target="_blank" rel="noopener">Gridwise Rideshare Avg</a> · <a class="foot-link" href="https://www.census.gov/topics/employment/commuting.html" target="_blank" rel="noopener">US Census ACS</a></span>
             <span>Slide 2 / 9</span>
           </div>
         </div>
@@ -987,7 +999,7 @@
           </div>
 
           <div class="slide-foot">
-            <span>Problem: Poor Time + Route Planning Directly Drains Monthly Cash</span>
+            <span>Sources: <a class="foot-link" href="https://www.bls.gov/cps/cpsaat03.htm" target="_blank" rel="noopener">BLS CPS Workforce (76.2M)</a> · <a class="foot-link" href="https://www.bls.gov/news.release/cesan.nr0.htm" target="_blank" rel="noopener">BLS Transport Spend ($13.3K)</a> · <a class="foot-link" href="https://www.census.gov/topics/employment/commuting.html" target="_blank" rel="noopener">Census Commute (54.4 min)</a> · <a class="foot-link" href="https://newsroom.aaa.com/auto/your-driving-costs/" target="_blank" rel="noopener">AAA ($0.77/mi)</a></span>
             <span>Slide 3 / 9</span>
           </div>
         </div>
@@ -1146,14 +1158,14 @@
           </div>
 
           <div class="grid-2">
-            <div class="glass-card card-pad" style="justify-content: space-between;">
+            <div class="glass-card card-pad" style="justify-content: flex-start; gap: 16px;">
               <div class="card-label">Simple B2C Pricing with Instant ROI</div>
 
-              <div style="display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 14px; flex: 1;">
+              <div style="display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 14px;">
                 <div style="border: 1px solid var(--border-soft); border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.06);">
                   <div style="font-weight: 700; font-size: 20px;">Free · $0</div>
                   <div class="body-muted" style="margin-top: 2px;">Hook &amp; Proof</div>
-                  <ul class="clean-list" style="margin-top: 14px;">
+                  <ul class="clean-list" style="margin-top: 12px;">
                     <li>Up to 5 stops / day</li>
                     <li>5-mode cost compare</li>
                     <li>Morning &amp; evening summary</li>
@@ -1163,7 +1175,7 @@
                 <div style="border: 1px solid var(--border-crisp); border-radius: 16px; padding: 18px; background: var(--terracotta-panel);">
                   <div style="font-weight: 700; font-size: 20px; color: #fff;">Pro · $8/mo</div>
                   <div class="body-muted" style="color: rgba(255,255,255,0.9); margin-top: 2px;">$70/yr Annual</div>
-                  <ul class="clean-list" style="margin-top: 14px;">
+                  <ul class="clean-list" style="margin-top: 12px;">
                     <li>Unlimited stops + Optimize</li>
                     <li>Google &amp; Apple calendar sync</li>
                     <li>7-day $ &amp; time analytics</li>
@@ -1178,9 +1190,9 @@
               </div>
             </div>
 
-            <div class="terra-card card-pad" style="justify-content: space-between;">
+            <div class="terra-card card-pad" style="justify-content: flex-start; gap: 14px;">
               <div class="card-label">Why Users Come Back Tomorrow</div>
-              <ul class="clean-list" style="gap: 16px;">
+              <ul class="clean-list" style="gap: 14px;">
                 <li><strong>08:00 Morning Habit:</strong> One click builds the day, warns about tight bus hops, and locks departure cost.</li>
                 <li><strong>14:00 Mid-Day Safety Net:</strong> New errand added? Journo re-routes from your current stop automatically.</li>
                 <li><strong>20:00 Dollar Proof:</strong> Evening Review shows exact dollars &amp; minutes saved today.</li>
@@ -1190,7 +1202,7 @@
           </div>
 
           <div class="slide-foot">
-            <span>High D1→D30 Retention · Visible Savings Every Night Reinforce Tomorrow's Open</span>
+            <span>Sources: <a class="foot-link" href="https://gridwise.io/" target="_blank" rel="noopener">Gridwise Avg Fare ($23.66)</a> · <a class="foot-link" href="https://www.revenuecat.com/state-of-subscription-apps-2025/" target="_blank" rel="noopener">RevenueCat 2025 Retention Benchmarks</a></span>
             <span>Slide 6 / 9</span>
           </div>
         </div>
@@ -1255,7 +1267,7 @@
           </div>
 
           <div class="slide-foot">
-            <span>TAM $5.9B (76M BLS Workers) · Blended ARPU $6.50/mo ($8/mo &amp; $70/yr) · Realistic 9% Free→Pro</span>
+            <span>Model &amp; Sources: <a class="foot-link" href="https://github.com/cotpyshok-cpu/Journo/blob/main/pitch-deck/Journo-Financial-Model.xlsx" target="_blank" rel="noopener">Excel Financial Model (.xlsx) ↗</a> · <a class="foot-link" href="https://www.bls.gov/cps/cpsaat03.htm" target="_blank" rel="noopener">BLS CPS (76.2M)</a> · <a class="foot-link" href="https://www.revenuecat.com/state-of-subscription-apps-2025/" target="_blank" rel="noopener">RevenueCat 2025</a></span>
             <span>Slide 7 / 9</span>
           </div>
         </div>
@@ -1298,7 +1310,7 @@
                   </div>
                   <div class="matrix-cell cell-high">
                     <span class="risk-marker">1</span>
-                    <span class="risk-marker-label">Setup Churn</span>
+                    <span class="risk-marker-label">Free→Pro Churn</span>
                   </div>
 
                   <!-- Row 2: Medium Probability -->
@@ -1306,7 +1318,7 @@
                   <div class="matrix-cell cell-med"></div>
                   <div class="matrix-cell cell-high">
                     <span class="risk-marker">2</span>
-                    <span class="risk-marker-label">Map API Cost</span>
+                    <span class="risk-marker-label">High Paid CAC</span>
                   </div>
 
                   <!-- Row 3: Low Probability -->
@@ -1335,10 +1347,10 @@
                 <span class="sol-num">1</span>
                 <div>
                   <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
-                    Setup Friction &amp; Early Churn
+                    Free-to-Paid Conversion &amp; Churn
                   </div>
                   <p class="body-muted">
-                    <strong>Solution:</strong> Zero sign-up entry, NLP Quick Add &amp; <strong>1-Click Optimize</strong> (only asks critical conflicts).
+                    <strong>Solution:</strong> Nightly dollar-saved proof (1 skipped Uber = 3 mo Pro), <strong>$70/yr</strong> annual lock-in &amp; Personal Price Moat.
                   </p>
                 </div>
               </div>
@@ -1347,10 +1359,10 @@
                 <span class="sol-num">2</span>
                 <div>
                   <div style="font-weight: 700; font-size: clamp(14px, 1.35vw, 18px); color: #fff;">
-                    Google Maps API Cost Scaling
+                    Paid Acquisition Cost Inflation
                   </div>
                   <p class="body-muted">
-                    <strong>Solution:</strong> Multi-provider OSRM + local matrix cache cuts routing API spend by <strong>80%+</strong>.
+                    <strong>Solution:</strong> Organic TikTok/Reels savings breakdowns + <strong>Friends Ride</strong> trip-split invites keep blended CAC near <strong>$22</strong>.
                   </p>
                 </div>
               </div>
@@ -1382,7 +1394,7 @@
           </div>
 
           <div class="slide-foot">
-            <span>Every High-Impact Risk Addressed Directly in Product &amp; Infrastructure</span>
+            <span>Every High-Impact Commercial &amp; Product Risk Addressed Directly</span>
             <span>Slide 8 / 9</span>
           </div>
         </div>
